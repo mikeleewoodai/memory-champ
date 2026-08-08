@@ -523,8 +523,8 @@
     {
       "name": "memory_reflect",
       "title": "Reflect over memory",
-      "coala": "internal action: reasoning",
-      "description": "Consolidate a window of memory. CoALA's reasoning action, applied to the agent's own store.\n\nFour modes, independently selectable. `consolidate` distils clusters of episodes into semantic facts, keeping provenance back to the originals. `contradictions` finds facts in tension. `promote` spots repeated successful patterns and drafts procedural candidates. `importance` revises importance from observed access and reward.\n\nThis is the same operation the independent daemon runs on a schedule. Calling it directly is how an attached orchestration triggers learning at the end of a run rather than waiting for the next daemon pass.\n\nSemantic writes may be committed directly when `auto_commit` is set. Procedural output is ALWAYS a proposal — auto_commit does not and cannot apply to it.",
+      "coala": "internal action: reasoning, composed with learning on commit",
+      "description": "Consolidate a window of memory. CoALA's reasoning action applied to the agent's own store — strictly, reasoning composed with learning, since it distils in working memory and then writes the results to long-term memory (CoALA §4.4: \"Reasoning can be used to support learning (by writing the results into long-term memory)\").\n\nFour modes, independently selectable. `consolidate` distils clusters of episodes into semantic facts, keeping provenance back to the originals. `contradictions` finds facts in tension. `promote` spots repeated successful patterns and drafts procedural candidates. `importance` revises importance from observed access and reward.\n\nThis is the same operation the independent daemon runs on a schedule. Calling it directly is how an attached orchestration triggers learning at the end of a run rather than waiting for the next daemon pass.\n\nSemantic writes may be committed directly when `auto_commit` is set. Procedural output is ALWAYS a proposal — auto_commit does not and cannot apply to it.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,

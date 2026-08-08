@@ -75,7 +75,8 @@ The `vec0` virtual table is commented out in the DDL because it requires the sql
 
 ## Before building
 
-Read §12 of the spec. Two assumptions need a decision first:
+Read §12 of the spec for the full assumption set. The one that matters:
 
-- **A-1** — the CoALA mapping was written without access to the paper from the build environment. Re-read arXiv:2309.02427 and correct §3 if the terminology has drifted.
-- **A-3** — there is no authentication. Scope isolates logically, not securely. Fine for one person on one machine over stdio; not fine the moment it is shared.
+- **A-3 — there is no authentication.** Scope isolates logically, not securely. Accepted for solo use on one machine over stdio, where anything that could reach the server could already open `memory.db` directly. **Blocks a work version**, or any second user, second machine, network transport, or client data. Tracked as [B-1 in `BACKLOG.md`](BACKLOG.md).
+
+The CoALA mapping in §3 is verified against the published paper (TMLR 02/2024, OpenReview `1i6ZCvflQJ`): memory modules, action taxonomy, learning modalities, and the planning/execution decision cycle all check out. §3 also casts this agent into the paper's own Table 2 format — it is the only entry with all three long-term memory modules and no external action space.

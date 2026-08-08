@@ -82,9 +82,16 @@ CoALA frames a language agent as a cognitive architecture rather than a prompt w
 
 The distinction is load-bearing. An episode is evidence and is never wrong — it happened. A fact is a claim and can be contradicted. A procedure is an instruction and can be harmful if wrong. They therefore get different write rules, different retention, and different levels of trust.
 
-**Actions are typed.** CoALA splits the action space into *internal* actions that operate on the agent's own knowledge — **retrieval** (read long-term into working memory), **reasoning** (update working memory with the LLM), **learning** (write to long-term memory) — and *external* **grounding** actions that touch the world: digital, dialogue, physical.
+**Actions are typed.** CoALA splits the action space into *internal* actions that operate on the agent's own knowledge — **retrieval** (read long-term into working memory), **reasoning** (reads from *and* writes to working memory, via the LLM), **learning** (write to long-term memory) — and *external* **grounding** actions that touch the world: physical, dialogue, digital.
 
-**Decision-making is a cycle.** The agent loops: *propose* candidate actions, *evaluate* them, *select* one, *execute*. Working memory carries state across the cycle; learning writes what survives it.
+**Decision-making is a cycle with two stages.** Each cycle "yield[s] an external grounding action or an internal learning action" (§4.6). Getting there has two stages:
+
+| Stage | What happens | Actions used |
+|---|---|---|
+| **Planning** | *Proposal* generates candidate actions; *evaluation* assigns each a value; *selection* picks one or loops back to proposal. The sub-stages may interleave and iterate. | Reasoning and retrieval, which support planning rather than being the cycle's output |
+| **Execution** | The selected action is applied, an observation comes back, the cycle loops. | Grounding **or** learning |
+
+The asymmetry matters for this design. Retrieval and reasoning are *how the agent decides*; grounding and learning are *what a cycle produces*. Since this agent has no grounding actions at all, **every cycle it executes can only ever yield a learning action** — which is precisely what the independent daemon does.
 
 ### How this agent maps onto it
 
@@ -95,18 +102,41 @@ The distinction is load-bearing. An episode is evidence and is never wrong — i
 | Semantic memory | `records` + `semantic_attrs` |
 | Procedural memory | `records` + `procedural_attrs`, approval-gated |
 | Internal action: retrieval | `memory_recall` |
-| Internal action: reasoning | `memory_reflect` |
+| Internal action: reasoning | `memory_reflect` — strictly, reasoning *composed with* learning, since it distils and then writes. §4.4: "Reasoning can be used to support learning (by writing the results into long-term memory)" |
 | Internal action: learning | `memory_remember`, `memory_forget`, `memory_propose_procedure` |
-| External grounding actions | **Not implemented. Deliberate.** See §4 |
-| Decision cycle | Attached mode: the host runs it. Independent mode: the daemon runs it over the store itself. See §5 |
-| Learning modality: episodic write | `memory_remember` (type episodic), `memory_close_cycle` |
-| Learning modality: semantic write | `memory_remember` (type semantic), `memory_reflect` |
-| Learning modality: procedural update | `memory_propose_procedure` → human gate → `memory_review_proposals` |
-| Learning modality: LLM parameter update | **Out of scope.** See §4 |
+| External grounding actions (physical / dialogue / digital) | **None. Deliberate.** See §4 |
+| Decision cycle — planning stage | `memory_recall` and `memory_reflect` are the retrieval and reasoning a host uses to propose, evaluate, and select |
+| Decision cycle — execution stage | `memory_remember`, `memory_forget`, `memory_close_cycle`, `memory_propose_procedure` — all learning actions, since there are no grounding ones |
+| Learning modality: update episodic with experience | `memory_remember` (type episodic), `memory_close_cycle` |
+| Learning modality: update semantic with knowledge | `memory_remember` (type semantic), `memory_reflect` |
+| Learning modality: update agent code (procedural) | Narrowed to stored routines: `memory_propose_procedure` → human gate → `memory_review_proposals`. The agent's own code is never rewritten |
+| Learning modality: update LLM parameters (procedural) | **Out of scope.** See §4 |
+| "Modifying and deleting (a case of 'unlearning')" — named in §4.5 and §6 as understudied | `memory_forget`, with three escalating modes. See §8 |
 
 ### Two deliberate narrowings
 
-**Procedural memory is data, not code.** CoALA's procedural memory includes the agent's own source, and the authors flag rewriting it as the riskiest learning modality. Here a procedure is a natural-language routine a host may *choose* to follow. The memory agent never executes it, and never applies one to itself. Every procedural write is additionally gated on human approval.
+**Procedural memory is data, not code.** CoALA's procedural memory is "implicit knowledge stored in the LLM weights, and explicit knowledge written in the agent's code" (§4.1) — and the authors are blunt about the risk: writing to it is "significantly riskier than writing to episodic or semantic memory, as it can easily introduce bugs or allow an agent to subvert its designers' intentions." §6 puts it in the action space directly: "'Learning' actions (especially procedural deletion and modification) could cause internal harm."
+
+Here a procedure is a natural-language routine a host may *choose* to follow. The memory agent never executes it, and never applies one to itself. Every procedural write is additionally gated on human approval.
+
+One consequence worth naming: CoALA notes procedural memory "must be initialized by the designer with proper code to bootstrap the agent." That bootstrap layer here is the memory agent's own source, which is fixed. What the store holds is a *learned* layer on top, which legitimately starts empty.
+
+The paper's own worked example endorses exactly this asymmetry. Designing a retail assistant, §6 gives the agent "read and write access to episodic memory ... but read-only access to semantic and procedural memory (since it should not update the inventory or its own code)." Differentiated write access per memory module is the intended design move, not a deviation from it.
+
+### Cast into the paper's own terms
+
+CoALA's Table 2 characterises agents on four axes. This one, added in the same format:
+
+| Agent | Long-term memory | External grounding | Internal actions | Decision making |
+|---|---|---|---|---|
+| SayCan | — | physical | — | evaluate |
+| ReAct | — | digital | reason | propose |
+| Voyager | procedural | digital | reason / retrieve / learn | propose |
+| Generative Agents | episodic / semantic | digital / agent | reason / retrieve / learn | propose |
+| Tree of Thoughts | — | digital | reason | propose, evaluate, select |
+| **This memory agent** | **episodic / semantic / procedural** | **none** | **reason / retrieve / learn** | **attached: delegated to host · independent: propose, evaluate, select** |
+
+The empty grounding column is the whole point. It is the only row in the table with all three long-term memory modules and no external action space at all — a specialist in the internal half of CoALA's action space, designed to be attached to agents that own the external half.
 
 **Working memory belongs to the agent, not the host.** This service does not try to own or mirror the host's context window. It returns bounded blocks; the host decides what to put in its prompt. The working set exists so a crashed loop can be reconstructed and a stuck loop can be spotted — not to be the host's scratchpad.
 
@@ -129,7 +159,7 @@ The distinction is load-bearing. An episode is evidence and is never wrong — i
 |---|---|
 | A RAG document store | Documents are inputs to memory, not memory. Chunking a PDF into this would drown the signal — episodes and facts are small, numerous, and mutually related in ways document chunks are not. Keep the doc store separate and write *conclusions* here. |
 | A general-purpose vector database | Retrieval here is deliberately opinionated: recency and importance are first-class, not post-filters. Anything wanting raw ANN over millions of vectors wants a different tool. |
-| Grounding actions of any kind | The single strongest safety property of this design. No network, no filesystem outside the DB, no user dialogue. A compromised or confused host cannot use memory as a lateral-movement tool. |
+| Grounding actions of any kind | The single strongest safety property of this design. No network, no filesystem outside the DB, no user dialogue. A compromised or confused host cannot use memory as a lateral-movement tool. The paper argues both halves of this independently: §6 "Safety of the action space" observes that grounding actions "could cause external harm", and §6 "Size of the action space" recommends "taking the minimal action space necessary to solve a given task". |
 | LLM parameter updates | CoALA lists fine-tuning as a learning modality. It is excluded: it needs training infrastructure, it is not reversible in the way every other write here is, and the value at this scale is not there. |
 | Self-modifying procedural memory | See §3. Procedures are data a host may follow, never code the agent runs on itself. |
 | Multi-tenant authentication | v1 has none. Scope isolates logically, not securely. See assumption A-3 — this must be fixed before any shared deployment. |
@@ -191,12 +221,14 @@ Cycles are optional. A host that only calls `recall` and `remember` gets a worki
 
 A scheduled process runs the CoALA cycle over the agent's own memory, with no host present. This is what makes memory improve *between* sessions rather than only during them.
 
-| Stage | What the daemon does |
+Because the agent has no grounding actions, its cycles can only yield learning actions — so the daemon is a pure learning loop, and every stage below maps onto §4.6.
+
+| CoALA stage | What the daemon does |
 |---|---|
-| Propose | Cluster unconsolidated episodes; find repeated successful action patterns; find contradicting facts; find expired TTLs, stale cycles, and drifted embeddings |
-| Evaluate | Score candidates on cluster size, corroboration count, reward, and access history. Optional LLM adjudication for contradictions the triple form cannot settle — off by default, because an unattended model call that rewrites stored facts is exactly the failure this design avoids |
-| Select | Rank by expected value, cap per run, and **respect the gates**: semantic may commit, procedural may only queue |
-| Execute | Write semantic facts with provenance; queue procedural proposals; reap abandoned cycles; expire TTLs; re-embed drifted records; vacuum |
+| **Planning** — proposal | Retrieval and reasoning over the store: cluster unconsolidated episodes, find repeated successful action patterns, find contradicting facts, find expired TTLs, stale cycles, and drifted embeddings |
+| **Planning** — evaluation | Score candidates on cluster size, corroboration count, reward, and access history. Optional LLM adjudication for contradictions the triple form cannot settle — off by default, because an unattended model call that rewrites stored facts is exactly the failure this design avoids |
+| **Planning** — selection | Rank by value, cap per run, and **respect the gates**: semantic may commit, procedural may only queue |
+| **Execution** | The selected learning action is applied: write semantic facts with provenance, queue procedural proposals, reap abandoned cycles, expire TTLs, re-embed drifted records, vacuum. Then the cycle loops |
 
 Both modes call the same code paths. `memory_reflect` is the daemon's consolidation stage exposed as a tool, so an attached host can trigger learning at the end of a run instead of waiting six hours.
 
@@ -516,16 +548,19 @@ Numbered, testable, and written against the defaults in `policy.example.yaml`.
 
 Falsifiable, each with the consequence if it turns out wrong.
 
-**A-1 — The CoALA mapping in §3 is faithful to the paper.**
-Terminology here was written from knowledge of the framework; the primary source could not be fetched from the build environment to verify wording.
-*If wrong:* §3 needs corrective editing. The architecture does not — the four memory modules, the internal/external action split, and the propose-evaluate-select-execute cycle are the load-bearing ideas, and the design is sound regardless of exact naming. **Re-read arXiv:2309.02427 before publishing this externally.**
+**A-1 — The CoALA mapping in §3 is faithful to the paper. RESOLVED — verified against the paper.**
+Checked against the published TMLR version (02/2024, OpenReview `1i6ZCvflQJ`). Memory modules, the internal/external action split, the three internal action classes, the learning modalities, and the Generative Agents retrieval attribution all match §4.1–§4.6 as written. Three things were corrected in the process: the decision cycle now uses the paper's planning-stage / execution-stage structure rather than a flat four-step sequence; `memory_reflect` is labelled as reasoning composed with learning rather than reasoning alone; and §4 and §13 now cite the paper's own §6 arguments for the minimal-action-space and no-grounding decisions instead of asserting them.
+*No longer an open risk.*
 
 **A-2 — One node with one writer is enough.**
 *If wrong:* the storage layer moves to Postgres + pgvector. The tool contract, record schemas, and every acceptance criterion above are unaffected, which is why storage sits behind the contract rather than in it. Expect a week of work, not a redesign.
 
-**A-3 — Hosts are trusted. v1 has no authentication.**
+**A-3 — Hosts are trusted. v1 has no authentication. ACCEPTED for solo use; OPEN for the work version.**
 Any orchestration that can reach the server can read and write any scope whose name it knows. Scope is a logical boundary, not a security one.
-*If wrong — and it is wrong the moment this is shared between people —* a scope-bound token must be added before deployment beyond a single user's machine. Until then: stdio transport, or bind to loopback only.
+
+*Decision (2026-08-08):* accepted for v1. This runs on one person's machine over stdio, where the threat model is empty — anything that could reach the server could already read `memory.db` directly.
+
+*Still open:* a work deployment invalidates this assumption completely, and the gap is tracked in [`BACKLOG.md`](../BACKLOG.md) as the blocking item for that version. Until it is closed, do not run this over a network-bound transport, do not put another person's data in it, and do not share a `memory.db`.
 
 **A-4 — Local 384-dimension embeddings give good enough recall.**
 *If wrong:* swap the embedder for a stronger hosted model. Costs a re-embed pass, which the daemon already supports, plus a data-egress decision since memory content would leave the machine.
@@ -548,7 +583,8 @@ Consolidation quality is unproven until there is real traffic.
 | SQLite over Postgres/pgvector | Postgres gives multi-writer, multi-device, and row-level security; SQLite gives one portable file and no infrastructure | Portability won. The whole memory being one copyable file is a genuine feature, and the storage layer is isolated so the swap stays cheap. Revisit above ~1M records |
 | Base table + per-type extension tables | One wide nullable table is simpler to query; extension tables need a join | Constraints. A wide table cannot enforce "an episode has a step number" without abandoning NOT NULL. Joins at this scale cost nothing |
 | Proposals in a separate table, not a status flag | A flag is less code | Safety must not depend on every query remembering a `WHERE`. A separate table makes an unapproved procedure unreachable even by a buggy query |
-| Procedural writes always gated, not configurable | A configurable gate is more flexible; an unattended agent that must wait for approval learns slower | CoALA names procedural updates the riskiest learning modality and it is right. A flexible gate becomes an off gate the first time someone is in a hurry |
+| Procedural writes always gated, not configurable | A configurable gate is more flexible; an unattended agent that must wait for approval learns slower | CoALA §4.1 calls procedural writes "significantly riskier ... [they] can easily introduce bugs or allow an agent to subvert its designers' intentions", and §6 names "procedural deletion and modification" as the learning actions that "could cause internal harm". A flexible gate becomes an off gate the first time someone is in a hurry |
+| `memory_forget` is a first-class tool, not an admin script | Most memory systems only add | CoALA §4.5 notes "modifying and deleting (a case of 'unlearning') are understudied", and §6 lists "deleting unneeded memory items" as a needed form of learning. A store that can only grow is a store that gets worse |
 | Contradictions reported, never auto-resolved | Auto-resolution gives the host one clean answer; reporting pushes work onto the host | The agent has no basis for choosing. It does not know which source is more reliable. A store that silently picks wrong is worse than one that admits conflict |
 | Only `content` is indexed | Indexing several columns would improve recall on structured fields | Relevance would then depend on which column matched — hidden behaviour that makes ranking untunable. One indexed field with a stated writer-side invariant is honest |
 | RRF instead of normalised score fusion | Normalising cosine and BM25 into one scale is the common approach | The scales are not comparable and normalisation constants drift with corpus size. RRF needs one constant and is stable |
@@ -605,5 +641,6 @@ Stages 1-3 are the minimum that earns its place in an orchestration. Everything 
 
 ## References
 
-- Sumers, T. R., Yao, S., Narasimhan, K., & Griffiths, T. L. (2024). *Cognitive Architectures for Language Agents.* Transactions on Machine Learning Research. arXiv:2309.02427
-- Park, J. S., O'Brien, J., Cai, C. J., Morris, M. R., Liang, P., & Bernstein, M. S. (2023). *Generative Agents: Interactive Simulacra of Human Behavior.* UIST '23 — source of the relevance × recency × importance retrieval function
+- Sumers, T. R., Yao, S., Narasimhan, K., & Griffiths, T. L. (2024). *Cognitive Architectures for Language Agents.* Transactions on Machine Learning Research, 02/2024. arXiv:2309.02427. OpenReview: `1i6ZCvflQJ`
+  Sections referenced above: §4.1 memory modules · §4.2 grounding · §4.3 retrieval · §4.4 reasoning · §4.5 learning modalities and the unlearning gap · §4.6 decision cycle · §6 action-space size and safety, and the per-module write-access example.
+- Park, J. S., O'Brien, J., Cai, C. J., Morris, M. R., Liang, P., & Bernstein, M. S. (2023). *Generative Agents: Interactive Simulacra of Human Behavior.* UIST '23 — source of the relevance × recency × importance retrieval function, and cited as such in CoALA §4.3.
