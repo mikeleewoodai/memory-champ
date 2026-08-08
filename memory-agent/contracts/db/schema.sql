@@ -214,6 +214,26 @@ CREATE TABLE IF NOT EXISTS procedural_attrs (
   reviewed_at    TEXT    NOT NULL,
   rationale      TEXT,
 
+  -- Proof the decision came from a specific human, not from an agent typing a
+  -- name. reviewed_by above is a claim; these columns are the evidence.
+  --
+  -- All NOT NULL, so an unsigned approved procedure is unrepresentable in this
+  -- table rather than merely discouraged - the same trick as keeping unapproved
+  -- candidates out of `records` entirely.
+  --
+  -- sig_payload holds the signed bytes VERBATIM. Verification must never
+  -- rebuild the payload from the columns around it: that would only prove the
+  -- row is self-consistent. Storing it as signed is what lets anyone re-verify
+  -- this decision years later with nothing but the public key.
+  sig_alg        TEXT    NOT NULL DEFAULT 'ed25519' CHECK (sig_alg = 'ed25519'),
+  sig_key_id     TEXT    NOT NULL CHECK (sig_key_id GLOB 'SHA256:*'),
+  sig_payload    TEXT    NOT NULL,
+  sig_value      TEXT    NOT NULL,
+  -- Candidate hash at signing time. If this stops matching the live record, the
+  -- procedure was edited after approval and must be treated as unapproved.
+  candidate_sha256 TEXT  NOT NULL CHECK (length(candidate_sha256) = 64),
+  sig_verified_at  TEXT,
+
   -- Does the learned procedure actually work? A high invocation count with a
   -- low success count means it should be revised or retired.
   invocations    INTEGER NOT NULL DEFAULT 0 CHECK (invocations >= 0),
@@ -227,6 +247,37 @@ CREATE TABLE IF NOT EXISTS procedural_attrs (
 
 CREATE INDEX IF NOT EXISTS ix_procedural_state ON procedural_attrs (approval_state);
 CREATE INDEX IF NOT EXISTS ix_procedural_usage ON procedural_attrs (invocations, successes);
+-- Find everything approved by a key that was later retired or compromised.
+CREATE INDEX IF NOT EXISTS ix_procedural_key   ON procedural_attrs (sig_key_id);
+
+
+-- =============================================================================
+-- approval_challenges — server-issued nonces
+-- =============================================================================
+-- A nonce binds one signature to one decision on one proposal within a short
+-- window. Without it a reviewer could be induced to pre-sign approvals, or an
+-- old signature could be held and replayed after the candidate changed.
+--
+-- Issued by memory_review_proposals(action='list'), consumed exactly once by
+-- the matching approve/reject. Single-use is enforced by `consumed_at` rather
+-- than by deletion, so a replay attempt is visible instead of just failing.
+
+CREATE TABLE IF NOT EXISTS approval_challenges (
+  nonce       TEXT PRIMARY KEY,
+  proposal_id TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
+  scope       TEXT NOT NULL,
+  -- Candidate hash at the moment the challenge was issued. If the candidate
+  -- changes before the signature arrives, the hashes diverge and the signature
+  -- is refused - a reviewer only ever approves what they were actually shown.
+  candidate_sha256 TEXT NOT NULL CHECK (length(candidate_sha256) = 64),
+  issued_at   TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  consumed_at TEXT,
+  consumed_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS ix_challenges_open ON approval_challenges (proposal_id, expires_at)
+  WHERE consumed_at IS NULL;
 
 
 -- =============================================================================
@@ -315,6 +366,15 @@ CREATE TABLE IF NOT EXISTS proposals (
   reviewed_at  TEXT,
   review_note  TEXT,
 
+  -- Signature over the decision. Approvals also copy this onto the resulting
+  -- procedural_attrs row; rejections live only here, and are signed too - a
+  -- forged rejection is a denial of service on the agent's own learning, and it
+  -- puts a human's name against a decision they did not make.
+  sig_alg      TEXT CHECK (sig_alg IS NULL OR sig_alg = 'ed25519'),
+  sig_key_id   TEXT,
+  sig_payload  TEXT,
+  sig_value    TEXT,
+
   -- Set when approval materialised the candidate, so the resulting record can
   -- be traced back to the decision that let it in.
   materialised_record_id TEXT REFERENCES records(id) ON DELETE SET NULL,
@@ -323,7 +383,11 @@ CREATE TABLE IF NOT EXISTS proposals (
   dedupe_key   TEXT,
 
   CHECK ((state = 'pending') = (reviewed_by IS NULL)),
-  CHECK ((state = 'approved') OR (materialised_record_id IS NULL))
+  CHECK ((state = 'approved') OR (materialised_record_id IS NULL)),
+  -- A human decision must carry its proof. 'expired' is the server's own
+  -- bookkeeping, not a human decision, so it is exempt.
+  CHECK (state IN ('pending','expired')
+         OR (sig_key_id IS NOT NULL AND sig_payload IS NOT NULL AND sig_value IS NOT NULL))
 );
 
 CREATE INDEX IF NOT EXISTS ix_proposals_queue ON proposals (state, scope, proposed_at);
@@ -417,6 +481,16 @@ SELECT r.id, r.content, p.invocations, p.successes,
 FROM records r JOIN procedural_attrs p ON p.record_id = r.id
 WHERE p.invocations >= 5
   AND CAST(p.successes AS REAL) / p.invocations < 0.5;
+
+-- Procedures whose stored content no longer hashes to what was signed, i.e.
+-- edited after approval. The application computes the live hash; this view
+-- surfaces the columns to compare and the key that signed. Anything appearing
+-- here must be treated as UNAPPROVED until re-signed.
+CREATE VIEW IF NOT EXISTS v_approval_audit AS
+SELECT r.id, r.scope, r.content, p.reviewed_by, p.reviewed_at,
+       p.sig_key_id, p.candidate_sha256, p.sig_payload, p.sig_value, p.sig_verified_at
+FROM records r JOIN procedural_attrs p ON p.record_id = r.id
+WHERE p.approval_state = 'approved';
 
 -- The human review queue.
 CREATE VIEW IF NOT EXISTS v_pending_proposals AS

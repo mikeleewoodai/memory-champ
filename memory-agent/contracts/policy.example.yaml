@@ -95,9 +95,49 @@ learning:
     procedural: proposal      # ALWAYS proposal. Not configurable to auto by design:
                               # CoALA flags procedural updates as the riskiest
                               # learning modality, so this one is a hard gate.
-  # An unattended daemon may create proposals; it may never approve one.
+  # An unattended daemon may create proposals; it may never approve one. This is
+  # now belt and braces: the daemon has no reviewer private key, so even if this
+  # flag were flipped its approvals would fail signature verification.
   daemon_may_approve: false
   proposal_expiry_days: 30
+
+  # --- Who is allowed to approve, and how the server knows it was them --------
+  #
+  # reviewed_by is a claim. This is the proof. Approving or rejecting requires an
+  # Ed25519 signature over a server-issued challenge; the private key lives with
+  # the reviewer and never reaches this machine's config, so an agent holding the
+  # tool still cannot manufacture a decision.
+  #
+  # Generate a key (or reuse an existing SSH one — the public half loads in
+  # OpenSSH format):
+  #   ssh-keygen -t ed25519 -f ~/.memory-agent/approval -C "memory-agent approval"
+  #   memory-agent key fingerprint ~/.memory-agent/approval.pub
+  approval:
+    require_signature: true       # Refuses to start if false and reviewers is non-empty:
+                                  # a half-disabled gate is worse than an honest one.
+    challenge_ttl_seconds: 600    # How long an issued nonce stays signable.
+    reviewers:
+      - id: mike
+        alg: ed25519
+        # Public half only. Accepts raw base64 or an OpenSSH 'ssh-ed25519 AAAA...'
+        # line, so an existing key can be reused without new key management.
+        public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIREPLACE_WITH_YOUR_PUBLIC_KEY"
+        key_id: "SHA256:REPLACE_WITH_FINGERPRINT"
+        added_at: "2026-08-08T00:00:00Z"
+        # retired: true   -> existing signatures still verify, no new decisions
+        # revoked: true   -> existing signatures stop being trusted; everything
+        #                    this key approved surfaces in v_approval_audit for
+        #                    re-review. Use if a key is lost or compromised.
+
+    # Re-check stored signatures on a daemon sweep. Catches a procedure edited
+    # after approval, which would otherwise keep being recalled as approved.
+    reverify_on_daemon_run: true
+
+    # Require the signing key's passphrase on every approval rather than caching
+    # it in an agent. Closes the gap where anything running as you could read an
+    # unencrypted key file and sign on your behalf; costs a prompt each time.
+    # Turn on if the machine runs agents you do not fully control.
+    require_passphrase: false
 
   importance:
     default: 0.5

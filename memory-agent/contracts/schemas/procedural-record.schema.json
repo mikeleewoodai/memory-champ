@@ -59,13 +59,13 @@
     },
 
     "approval": {
-      "description": "The gate. A procedural record is invisible to recall until state is 'approved'. Nothing — not the daemon, not a host, not reflection — may set 'approved' without a human reviewer, and unattended runs may only ever queue candidates as 'pending'.",
+      "description": "The gate. A procedural record is invisible to recall until state is 'approved'.\n\n`reviewed_by` is a claim, not proof — a string any caller could write. The proof is `signature`: an Ed25519 signature by a key the reviewer holds and the server never sees the private half of. An agent cannot manufacture one, which is what turns the gate from a convention into a control. It is required whenever state is 'approved' or 'rejected'.",
       "type": "object",
       "unevaluatedProperties": false,
       "properties": {
         "state": { "enum": ["pending", "approved", "rejected"] },
         "reviewed_by": {
-          "description": "Identifier of the human who approved or rejected. Must be absent while state is 'pending'.",
+          "description": "Identifier of the human who decided. Must match the `reviewer:` line inside the signed payload, and must be absent while state is 'pending'.",
           "oneOf": [{ "type": "string", "maxLength": 255 }, { "type": "null" }]
         },
         "reviewed_at": {
@@ -78,13 +78,14 @@
           "description": "Why it was approved or rejected. Rejections are kept, not deleted: a rejected candidate that keeps being re-proposed is a signal about the proposer.",
           "type": "string",
           "maxLength": 2048
-        }
+        },
+        "signature": { "$ref": "#/$defs/approval_signature" }
       },
       "required": ["state"],
       "allOf": [
         {
           "if": { "properties": { "state": { "enum": ["approved", "rejected"] } }, "required": ["state"] },
-          "then": { "required": ["reviewed_by", "reviewed_at"] }
+          "then": { "required": ["reviewed_by", "reviewed_at", "signature"] }
         }
       ]
     },
@@ -114,5 +115,49 @@
     }
   },
 
-  "required": ["trigger", "steps", "approval"]
+  "required": ["trigger", "steps", "approval"],
+
+  "$defs": {
+    "approval_signature": {
+      "title": "Approval Signature",
+      "description": "Proof that a specific human made this decision about this exact candidate.\n\nThe signed payload is stored VERBATIM rather than reconstructed at verification time. That is the whole point: years later, with nothing but this record and the reviewer's public key, anyone can re-verify the decision offline. Reconstructing the payload from current field values would instead prove only that the fields are self-consistent — which is not evidence of anything.",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "alg": {
+          "description": "Only Ed25519 in v1. Named explicitly so a future algorithm can be added without ambiguity about how old signatures were made.",
+          "const": "ed25519"
+        },
+        "key_id": {
+          "description": "SHA256 fingerprint of the signing public key, OpenSSH style: 'SHA256:' + unpadded base64 of the digest of the 32 raw public key bytes. Identifies which reviewer key to verify against, and survives key rotation — a retired key stays in policy so its old signatures keep verifying.",
+          "type": "string",
+          "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"
+        },
+        "signed_payload": {
+          "description": "The exact UTF-8 byte string that was signed, stored as-is. Fixed-field and newline-delimited, never JSON — canonical JSON is a footgun (key order, unicode escaping, number formatting) and a verifier that has to re-serialise can disagree with the signer.\n\nFormat, in this order, each line terminated by \\n:\n  memory-agent-approval-v1\n  scope: <scope>\n  proposal: <proposal_id>\n  candidate_sha256: <hex>\n  decision: approve|reject\n  reviewer: <reviewer_id>\n  nonce: <server-issued nonce>\n  expires: <RFC3339>\n",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "sig": {
+          "description": "Base64 of the 64-byte Ed25519 signature over signed_payload.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{86}==$"
+        },
+        "candidate_sha256": {
+          "description": "SHA256 of the candidate at signing time, lowercase hex. Also appears inside signed_payload; duplicated here so a tamper check is an index lookup rather than a string parse. If this stops matching the stored record, the procedure was altered after approval and must be treated as unapproved.\n\nExactly what is hashed, because a verifier that disagrees here rejects valid approvals: the proposal's `candidate` object serialised as UTF-8 JSON with keys sorted lexicographically, no insignificant whitespace (`,` and `:` separators), and non-ASCII characters left unescaped. In Python: `json.dumps(candidate, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()`. The hash covers the candidate only — never the envelope fields the server assigns, which would make it unreproducible.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "verified_at": {
+          "description": "When the server last checked the signature. Re-verification is cheap and the daemon does it on a sweep, so a record whose content drifted from its signature gets caught rather than trusted indefinitely.",
+          "oneOf": [
+            { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["alg", "key_id", "signed_payload", "sig", "candidate_sha256"]
+    }
+  }
 }

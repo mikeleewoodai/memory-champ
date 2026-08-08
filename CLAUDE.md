@@ -10,7 +10,7 @@ Projects folder for work started from my phone. Each subdirectory is a separate 
 
 ## Standing items
 
-**`memory-agent` — authentication is unbuilt and blocks a work version.** v1 deliberately has no authn/authz; scope isolates logically, not securely. Accepted for solo use on one machine over stdio. Must be closed before any multi-user, multi-machine, network-bound, or client-data deployment. Full work item in `memory-agent/BACKLOG.md` (B-1); assumption A-3 in the spec. Raise this when a work version, a second user, or any non-stdio transport comes up.
+**`memory-agent` — caller authentication is unbuilt and blocks a work version.** Reviewer identity is done: approving a procedure requires an Ed25519 signature from Mike's key, so an agent cannot approve its own proposals (spec §8, F18–F23). What remains is authn/authz for *callers* — any orchestration reaching the server can read and write any scope it can name, and writes are unattributed. Scope isolates logically, not securely. Accepted for solo use on one machine over stdio. Must be closed before any multi-user, multi-machine, network-bound, or client-data deployment. Full work item in `memory-agent/BACKLOG.md` (B-1); assumption A-3 in the spec. Raise this when a work version, a second user, or any non-stdio transport comes up.
 
 ## Conventions
 

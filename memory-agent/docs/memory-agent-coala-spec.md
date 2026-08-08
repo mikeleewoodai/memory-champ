@@ -268,6 +268,10 @@ Changing model invalidates every stored vector. `records.embedding_model` makes 
 | Proposal queue | `memory.db` → `proposals` | Yes | No | Pending approvals survive a restart by design — an unattended gate that forgets is not a gate |
 | Working sets (open cycles) | `memory.db` → `working_set` | Yes | No | Persisted, not in-process. A server restart mid-cycle does not lose the trajectory |
 | Observations | `memory.db` → `observations` | Yes | No | Written before the host acts, so a crash leaves evidence rather than a hole |
+| Approval signatures | `memory.db` → `procedural_attrs`, `proposals` | Yes | No | The signed payload is stored verbatim, so approvals re-verify offline from the record alone |
+| Approval challenges (nonces) | `memory.db` → `approval_challenges` | Yes | No | Single-use and short-lived. Consumed rather than deleted, so a replay attempt is visible |
+| Reviewer **public** keys | `policy.yaml` on disk | Yes | Yes | Public halves only |
+| Reviewer **private** keys | **Never on this machine's server config** — the reviewer's own keystore | n/a | n/a | This is the whole basis of the approval gate. If a private key ends up in the server's config or environment, the gate is gone |
 | Policy | `policy.yaml` on disk | Yes | Yes | Not in the DB. A corrupted DB does not take the configuration with it |
 | Embedder weights | Model cache on disk | Yes | Yes | ~90MB for the default model; first run downloads unless pre-seeded |
 | MCP session state | None | n/a | n/a | The server is stateless between tool calls. Everything is in the DB |
@@ -368,6 +372,58 @@ When nothing is found, `context_block` is the empty string — never a sentence 
 
 **`memory_propose_procedure` can only ever return `pending`.** The output schema pins `state` to a const. There is no parameter that approves on write and none will be added.
 
+### Signed approvals
+
+`reviewed_by` used to be a self-asserted string. Anything holding the tool could write a person's name against a decision. The gate stopped an agent from *writing* a procedure while leaving it free to *approve* one — which is the same thing with extra steps.
+
+Approving or rejecting now requires an **Ed25519 signature** from a reviewer key. The private half lives with the reviewer and never reaches the server, which holds only public keys. An agent has the tool and not the key, so it cannot manufacture a decision.
+
+Two calls:
+
+```
+1. memory_review_proposals(action="list")
+     -> for each pending proposal: the candidate, its sha256,
+        and `signing_payload` — the exact bytes to sign, carrying
+        a single-use server nonce and that hash
+
+2. sign those bytes locally, then
+   memory_review_proposals(action="approve", proposal_ids=[...],
+                           reviewed_by="mike", signatures=[...])
+```
+
+The payload is fixed-field and newline-delimited, never JSON — canonical JSON is a footgun (key order, unicode escaping, number formatting), and a verifier that re-serialises can disagree with the signer:
+
+```
+memory-agent-approval-v1
+scope: acme.crm
+proposal: p_01J9X2QK7M
+candidate_sha256: a3ffa5d4...c3ca44a
+decision: approve
+reviewer: mike
+nonce: 3f9a1c77b204e8d6
+expires: 2026-08-08T14:12:00Z
+```
+
+To reject, flip the `decision:` line and sign that. One challenge authorises one decision, either way.
+
+What each field buys:
+
+| Field | Attack it closes |
+|---|---|
+| `candidate_sha256` | Approving a benign procedure, then editing it before it lands. The signature covers the exact content shown |
+| `nonce` (single-use, 10 min) | Stockpiling pre-signed approvals, or replaying an old one |
+| `proposal` + `scope` | Reusing a signature from one proposal against another |
+| `decision` | Turning a signed rejection into an approval |
+| `reviewer` | Attributing a decision to someone who did not make it |
+
+**The signed payload is stored verbatim on the record**, not reconstructed at verification time. That distinction is the point: reconstructing from current field values would prove only that the row is self-consistent. Storing the signed bytes means that months later, with nothing but the record and a public key, the decision re-verifies offline — and a procedure edited after approval fails that check instead of quietly continuing to be recalled as approved. The daemon re-verifies on a sweep; mismatches surface in `v_approval_audit` and must be treated as unapproved.
+
+Rejections are signed too. A forged rejection is a denial of service on the agent's own learning, and it puts a name against a decision that was not made.
+
+Key handling: an existing SSH key can be reused — public keys load in OpenSSH `ssh-ed25519 AAAA...` form, so there is no new key material to manage. Retiring a key keeps its old signatures verifiable while refusing new decisions; revoking one invalidates everything it approved and surfaces those procedures for re-review.
+
+**What this does and does not defend against.** It makes agent self-approval structurally impossible, and it makes every approval durably provable and tamper-evident. It does not defend against an attacker who already has code execution as you and can read an unencrypted key file — that is what `require_passphrase`, or a hardware-backed key via `ssh-agent`, is for. And it protects only the approval path: `memory_remember` writes remain unauthenticated, as does the transport. Those are B-1. See §12 A-3.
+
 ### Errors
 
 Eleven codes, in `mcp-tools.json`. Three worth knowing before writing a client:
@@ -464,7 +520,7 @@ Numbered, testable, and written against the defaults in `policy.example.yaml`.
 *accept:* After `memory_propose_procedure`, a recall with `types: ["procedural"]` matching the proposal's text returns zero records. After `memory_review_proposals` with `action: "approve"`, the same recall returns exactly one.
 
 **F8 — The daemon cannot approve its own proposals.**
-*accept:* With `daemon_may_approve: false`, an approve from a caller identified as the daemon returns `APPROVAL_REQUIRES_HUMAN` and the proposal stays `pending`.
+*accept:* An approve from the daemon fails for two independent reasons: `daemon_may_approve: false` refuses it, and with that flag flipped to true it still fails with `APPROVAL_SIGNATURE_REQUIRED`, because the daemon holds no reviewer key. The proposal stays `pending` in both cases.
 
 **F9 — Trajectories reconstruct.**
 *accept:* After a 5-step cycle, ordering `episodic_attrs` by `(session_id, cycle_id, step_no)` returns the 5 steps in the order they occurred, with no gaps and no duplicates.
@@ -492,6 +548,24 @@ Numbered, testable, and written against the defaults in `policy.example.yaml`.
 
 **F17 — Supersession is atomic.**
 *accept:* `memory_remember` with `supersedes: <id>` leaves the old record `status: "superseded"` with `superseded_by` set to the new id, in one transaction. No sequence of calls produces a record that is superseded with a null successor.
+
+**F18 — An unsigned approval is refused.**
+*accept:* `memory_review_proposals` with `action: "approve"` and no `signatures` entry for a proposal id returns `APPROVAL_SIGNATURE_REQUIRED`; the proposal stays `pending`, no record is created, and the queue depth is unchanged.
+
+**F19 — A signature commits to exact content.**
+*accept:* Sign a proposal's `signing_payload`, edit the candidate so its hash changes, then submit the signature. The result is `APPROVAL_CANDIDATE_CHANGED`, `skipped[].reason: "candidate_changed"`, and the proposal stays `pending`.
+
+**F20 — A signature cannot be replayed or repurposed.**
+*accept:* A valid signature submitted twice fails the second time with `challenge_already_used`. The same signature submitted against a different `proposal_id`, a different `reviewed_by`, or with `decision` flipped from reject to approve fails with `APPROVAL_SIGNATURE_INVALID`. A challenge older than `challenge_ttl_seconds` fails with `challenge_expired`.
+
+**F21 — Approvals re-verify offline, years later.**
+*accept:* Given only a stored procedural record and the reviewer's public key — no server, no policy file, no database — the signature over `approval.signature.signed_payload` verifies, and the payload's `candidate_sha256` matches a fresh hash of the stored candidate.
+
+**F22 — Post-approval tampering is detected, not trusted.**
+*accept:* Edit an approved procedure's steps directly in the database. The next daemon re-verification pass surfaces it in `v_approval_audit` with a hash mismatch, and it stops being returned by recall as approved.
+
+**F23 — Key lifecycle behaves as labelled.**
+*accept:* A signature from an unknown `key_id` returns `APPROVAL_KEY_UNKNOWN`. A key marked `retired` still verifies its existing approvals but is refused for new decisions. A key marked `revoked` causes every procedure it approved to appear in `v_approval_audit` for re-review. A server started with `require_signature: true` and no reviewer keys refuses to start with `NO_REVIEWER_KEYS_CONFIGURED`.
 
 ### Non-functional
 
@@ -533,7 +607,9 @@ Numbered, testable, and written against the defaults in `policy.example.yaml`.
 |---|---|---|
 | **Embedding drift** — model changed, old vectors meaningless | Recall quality falls with no error | `records.embedding_model` makes it detectable; daemon re-embeds; keyword path stays correct throughout |
 | **Contradictory facts accumulate** | Recall returns both sides of a conflict; host behaviour goes inconsistent | Contradictions reported at write and at recall, and counted in `stats.health`. Deliberately not auto-resolved — see §8 |
-| **Memory poisoning** — a compromised or confused host writes false facts | Agent confidently acts on fiction | Every record carries provenance; `forget` can select by `provenance.agent` and reason; procedural memory is gated so poisoning cannot reach the most dangerous layer. **Not fully mitigated in v1** — there is no authentication, so any host that can reach the server can write. See A-3 |
+| **Memory poisoning** — a compromised or confused host writes false facts | Agent confidently acts on fiction | Every record carries provenance; `forget` can select by `provenance.agent` and reason; procedural memory is gated *and signed*, so poisoning cannot reach the most dangerous layer without the reviewer's key. **Episodic and semantic writes remain unauthenticated in v1** — any host that can reach the server can write a fact. See A-3 and B-1 |
+| **Reviewer key lost or compromised** | Approvals that look legitimate but were not made by the reviewer, or no way to approve anything | Mark the key `revoked` in policy: every procedure it approved surfaces in `v_approval_audit` for re-review rather than being silently trusted. Add a new key alongside. Keys are per-reviewer and rotatable, so this is a re-review exercise, not a rebuild |
+| **Procedure edited after approval** | A signed, apparently-approved procedure whose steps are no longer what was signed | `candidate_sha256` is covered by the signature; the daemon re-verifies on a sweep and mismatches surface in `v_approval_audit`, where they count as unapproved rather than approved |
 | **Unbounded growth** | DB grows, recall slows, ranking noise rises | TTLs, decay, daemon consolidation, and `limits.max_records_per_scope`. `stats` warns before the ceiling |
 | **DB corruption / loss** | Total memory loss — one file is the whole product | WAL plus `synchronous: NORMAL`; `PRAGMA integrity_check` in the daemon; **backup is an operational requirement**, called out in §6 rather than assumed |
 | **Runaway loop floods memory** | Thousands of near-identical episodes in minutes | `loop_warning` at cycle open; `max_writes_per_session_per_minute`; `idempotency_key` collapses genuine retries |
@@ -555,12 +631,17 @@ Checked against the published TMLR version (02/2024, OpenReview `1i6ZCvflQJ`). M
 **A-2 — One node with one writer is enough.**
 *If wrong:* the storage layer moves to Postgres + pgvector. The tool contract, record schemas, and every acceptance criterion above are unaffected, which is why storage sits behind the contract rather than in it. Expect a week of work, not a redesign.
 
-**A-3 — Hosts are trusted. v1 has no authentication. ACCEPTED for solo use; OPEN for the work version.**
-Any orchestration that can reach the server can read and write any scope whose name it knows. Scope is a logical boundary, not a security one.
+**A-3 — Hosts are trusted. PARTIALLY CLOSED in v1: reviewer identity is now proven; transport and scope authorization are not.**
 
-*Decision (2026-08-08):* accepted for v1. This runs on one person's machine over stdio, where the threat model is empty — anything that could reach the server could already read `memory.db` directly.
+Originally: no authentication anywhere, and `reviewed_by` a self-asserted string.
 
-*Still open:* a work deployment invalidates this assumption completely, and the gap is tracked in [`BACKLOG.md`](../BACKLOG.md) as the blocking item for that version. Until it is closed, do not run this over a network-bound transport, do not put another person's data in it, and do not share a `memory.db`.
+*Closed in v1 (§8, F18–F23):* **reviewer identity.** Approving or rejecting requires an Ed25519 signature from a key the server never holds the private half of. An agent cannot approve its own proposals, approvals are bound to exact content, and every decision is durably provable and tamper-evident. This was closed early because it is the only part of A-3 that bites in solo use — the realistic threat on one machine is not a remote attacker, it is an agent deciding that approving its own procedure would be convenient.
+
+*Still open, carried to [`BACKLOG.md`](../BACKLOG.md) B-1:* everything else. There is no caller authentication, so any orchestration reaching the server can read and write any scope it can name, and `memory_remember` writes are unattributed. Scope remains a logical boundary, not a security one.
+
+*Accepted for solo use* on one machine over stdio, where anything that could reach the server could already open `memory.db` directly. Until B-1 is closed: no network-bound transport, no second person's data, no shared `memory.db`.
+
+*Known limit of the signing scheme:* it does not stop an attacker who already has code execution as you and can read an unencrypted key file. `require_passphrase: true`, or a hardware-backed key through `ssh-agent`, closes that at the cost of a prompt per approval.
 
 **A-4 — Local 384-dimension embeddings give good enough recall.**
 *If wrong:* swap the embedder for a stronger hosted model. Costs a re-embed pass, which the daemon already supports, plus a data-egress decision since memory content would leave the machine.
@@ -585,6 +666,10 @@ Consolidation quality is unproven until there is real traffic.
 | Proposals in a separate table, not a status flag | A flag is less code | Safety must not depend on every query remembering a `WHERE`. A separate table makes an unapproved procedure unreachable even by a buggy query |
 | Procedural writes always gated, not configurable | A configurable gate is more flexible; an unattended agent that must wait for approval learns slower | CoALA §4.1 calls procedural writes "significantly riskier ... [they] can easily introduce bugs or allow an agent to subvert its designers' intentions", and §6 names "procedural deletion and modification" as the learning actions that "could cause internal harm". A flexible gate becomes an off gate the first time someone is in a hurry |
 | `memory_forget` is a first-class tool, not an admin script | Most memory systems only add | CoALA §4.5 notes "modifying and deleting (a case of 'unlearning') are understudied", and §6 lists "deleting unneeded memory items" as a needed form of learning. A store that can only grow is a store that gets worse |
+| Signed approvals in v1, ahead of any other authentication | Cryptography before basic authn looks backwards, and it is the only part of A-3 built early | The threat in solo use is not a remote attacker — it is an agent approving its own proposals, which needs no network at all. A name in a field stopped nothing. Signing closes the realistic gap now, and does it in a way transport auth never could: the proof outlives the session and is verifiable offline |
+| Approve stays on the MCP surface rather than moving to a CLI | Removing it entirely would make self-approval structurally impossible, matching the minimal-action-space principle | The signature, not the caller, is what is trusted — so an agent relaying an approval is harmless and an agent forging one is impossible. Keeping it callable means approving from a chat session instead of a terminal, which is the difference between a queue that gets drained and one that does not |
+| Signed payload is fixed-field text, not JSON | JSON is the obvious choice and everything else here is JSON | Canonical JSON is a footgun — key order, unicode escaping, number formatting. A verifier that re-serialises can disagree with the signer over bytes that look identical. Fixed-field text has one representation |
+| The signed payload is stored verbatim | Storing just the signature and rebuilding the payload is less data | Rebuilding proves only that the row is self-consistent with itself. Storing the signed bytes is what makes an approval independently verifiable years later, and what makes post-approval edits detectable |
 | Contradictions reported, never auto-resolved | Auto-resolution gives the host one clean answer; reporting pushes work onto the host | The agent has no basis for choosing. It does not know which source is more reliable. A store that silently picks wrong is worse than one that admits conflict |
 | Only `content` is indexed | Indexing several columns would improve recall on structured fields | Relevance would then depend on which column matched — hidden behaviour that makes ranking untunable. One indexed field with a stated writer-side invariant is honest |
 | RRF instead of normalised score fusion | Normalising cosine and BM25 into one scale is the common approach | The scales are not comparable and normalisation constants drift with corpus size. RRF needs one constant and is stable |

@@ -40,7 +40,7 @@ recall  →  act  →  remember  →  reflect
 ## Design commitments
 
 - **No grounding actions.** The worst it can do is return a bad memory.
-- **Procedural writes are human-gated.** CoALA names procedural updates the riskiest learning modality. Unapproved candidates live in a separate table, unreachable by recall even if a query is wrong.
+- **Procedural writes are human-gated, and the gate is real.** CoALA names procedural updates the riskiest learning modality. Unapproved candidates live in a separate table, unreachable by recall even if a query is wrong — and approving requires an **Ed25519 signature** from a key the server never holds the private half of. An agent has the tool but not the key, so it cannot approve its own proposals. Every approval is verifiable offline, years later, from the record alone.
 - **Contradictions are reported, never resolved.** The agent has no basis for picking a winner, and a store that silently picks wrong is worse than one that admits conflict.
 - **Nothing is destroyed by default.** Only an explicit `hard_delete` with `confirm: true` removes bytes.
 - **Recall cannot blow your context.** `context_block` is measured, not estimated, and never exceeds `max_tokens`.
@@ -69,14 +69,40 @@ python -c "
 import sqlite3
 sqlite3.connect(':memory:').executescript(open('contracts/db/schema.sql').read())
 print('ddl ok')"
+
+# the example approval signature is real - this is the golden test for signing code
+pip install cryptography
+python -c "
+import json,base64,hashlib
+from cryptography.hazmat.primitives.serialization import load_ssh_public_key as L
+e=json.load(open('contracts/examples/records.json'))
+s=e['procedural']['record']['approval']['signature']
+L(e['approval_signature_fixture']['reviewer_public_key_openssh'].encode()).verify(
+    base64.b64decode(s['sig']), s['signed_payload'].encode())
+c=e['procedural']['record']
+cand={k:c[k] for k in ('trigger','preconditions','steps','success_signal','failure_signal')}
+assert hashlib.sha256(json.dumps(cand,sort_keys=True,separators=(',',':'),
+                                 ensure_ascii=False).encode()).hexdigest()==s['candidate_sha256']
+print('approval signature verifies and the candidate hash matches')"
 ```
+
+If that last check fails in your implementation, your canonical payload or your candidate hashing disagrees with the contract — and it will reject genuine approvals.
 
 The `vec0` virtual table is commented out in the DDL because it requires the sqlite-vec extension; everything else runs on a stock SQLite build.
 
 ## Before building
 
-Read §12 of the spec for the full assumption set. The one that matters:
+Set up a reviewer key first — the server refuses to start without one:
 
-- **A-3 — there is no authentication.** Scope isolates logically, not securely. Accepted for solo use on one machine over stdio, where anything that could reach the server could already open `memory.db` directly. **Blocks a work version**, or any second user, second machine, network transport, or client data. Tracked as [B-1 in `BACKLOG.md`](BACKLOG.md).
+```bash
+ssh-keygen -t ed25519 -f ~/.memory-agent/approval -C "memory-agent approval"
+# put the .pub line and its fingerprint in policy.yaml under learning.approval.reviewers
+```
+
+An existing SSH key works too; only the public half goes in the config.
+
+Then read §12 of the spec for the full assumption set. The one that matters:
+
+- **A-3 — caller authentication is still missing.** Reviewer identity is now proven (signed approvals, §8, F18–F23), but nothing authenticates *who is calling*: any orchestration reaching the server can read and write any scope it can name, and `memory_remember` writes are unattributed. Scope isolates logically, not securely. Accepted for solo use on one machine over stdio, where anything that could reach the server could already open `memory.db` directly. **Blocks a work version**, or any second user, second machine, network transport, or client data. Tracked as [B-1 in `BACKLOG.md`](BACKLOG.md).
 
 The CoALA mapping in §3 is verified against the published paper (TMLR 02/2024, OpenReview `1i6ZCvflQJ`): memory modules, action taxonomy, learning modalities, and the planning/execution decision cycle all check out. §3 also casts this agent into the paper's own Table 2 format — it is the only entry with all three long-term memory modules and no external action space.

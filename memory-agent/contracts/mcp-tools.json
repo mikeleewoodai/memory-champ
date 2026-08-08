@@ -725,7 +725,7 @@
       "name": "memory_review_proposals",
       "title": "Review the proposal queue",
       "coala": "learning gate",
-      "description": "List, approve, or reject queued proposals. The human gate.\n\n`list` is safe for anyone. `approve` and `reject` require `reviewed_by` and are intended for a person. An unattended daemon must not call approve — policy enforces this with daemon_may_approve:false, and a server that finds itself approving its own proposals has lost the property the gate exists to provide.\n\nApproval materialises the candidate into memory in one transaction. Rejections are kept rather than deleted: a candidate that keeps being re-proposed after rejection says something about the proposer.",
+      "description": "List, approve, or reject queued proposals. The human gate.\n\n**Approving and rejecting require an Ed25519 signature from a reviewer key.** A name in `reviewed_by` is a claim anyone can type; the signature is proof. The private key lives with the reviewer and never reaches this server, so an agent — including the daemon, including a host LLM that decides approving would be convenient — cannot manufacture one. This is what makes the gate a control rather than a convention.\n\nThe flow is two calls:\n\n1. `action: \"list\"` returns each pending proposal together with a `signing_payload`: the exact bytes to sign, carrying a server-issued single-use nonce and a hash of the candidate as shown.\n2. Sign those bytes with your key (`memory-agent review` does this locally), then call `action: \"approve\"` with the signature.\n\nBecause the payload pins the candidate hash, a signature approves the exact procedure you were shown. Edit the candidate in between and the signature is refused. Because the nonce is single-use and short-lived, a signature cannot be stockpiled or replayed.\n\nApproval materialises the candidate into memory in one transaction. Rejections are kept rather than deleted, and are signed too — a forged rejection is a denial of service on the agent's own learning, and it puts a human's name against a decision they did not make.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -741,24 +741,55 @@
           "action": { "enum": ["list", "approve", "reject"] },
           "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
           "proposal_ids": {
+            "description": "For approve/reject. Each id must have a matching entry in `signatures` — decisions are signed one proposal at a time, because a single signature covering a batch could be reused against a different batch.",
             "type": "array",
             "items": { "type": "string" },
             "minItems": 1, "maxItems": 100
           },
           "reviewed_by": {
-            "description": "Identifier of the person deciding. Required for approve and reject, and recorded on the resulting record.",
+            "description": "Identifier of the person deciding. Must equal the `reviewer:` line inside every supplied signed payload; a mismatch is refused rather than silently preferring one.",
             "type": "string", "minLength": 1, "maxLength": 255
+          },
+          "signatures": {
+            "description": "Required for approve and reject, one entry per proposal id. Without a valid entry the call returns APPROVAL_SIGNATURE_REQUIRED and nothing changes.",
+            "type": "array",
+            "minItems": 1, "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "proposal_id": { "type": "string" },
+                "alg": { "const": "ed25519" },
+                "key_id": {
+                  "description": "SHA256 fingerprint of the signing public key. Must match a reviewer key in policy that is not revoked.",
+                  "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"
+                },
+                "signed_payload": {
+                  "description": "The exact bytes returned as `signing_payload` by the preceding list call, unmodified. Sent back verbatim rather than reconstructed — the server verifies the signature over these bytes and then checks the fields inside them against the request.",
+                  "type": "string", "minLength": 1, "maxLength": 4096
+                },
+                "sig": {
+                  "description": "Base64 of the 64-byte Ed25519 signature over signed_payload.",
+                  "type": "string", "pattern": "^[A-Za-z0-9+/]{86}==$"
+                }
+              },
+              "required": ["proposal_id", "alg", "key_id", "signed_payload", "sig"]
+            }
           },
           "note": { "type": "string", "maxLength": 2048 },
           "state": { "enum": ["pending", "approved", "rejected", "expired"], "default": "pending" },
           "kind": { "enum": ["procedural", "semantic", "forget", "supersede"] },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+          "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+          "challenge_ttl_seconds": {
+            "description": "For list: how long the issued nonces stay valid. Short by default so an unused challenge cannot be banked.",
+            "type": "integer", "minimum": 30, "maximum": 3600, "default": 600
+          }
         },
         "required": ["action"],
         "allOf": [
           {
             "if": { "properties": { "action": { "enum": ["approve", "reject"] } }, "required": ["action"] },
-            "then": { "required": ["proposal_ids", "reviewed_by"] }
+            "then": { "required": ["proposal_ids", "reviewed_by", "signatures"] }
           }
         ]
       },
@@ -788,7 +819,20 @@
                 },
                 "proposed_by": { "type": "string" },
                 "proposed_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
-                "source": { "enum": ["host", "daemon", "human", "import"] }
+                "source": { "enum": ["host", "daemon", "human", "import"] },
+                "candidate_sha256": {
+                  "description": "Hash of the candidate exactly as shown here. Also embedded in signing_payload, so a signature commits to this specific content.",
+                  "type": "string", "pattern": "^[0-9a-f]{64}$"
+                },
+                "signing_payload": {
+                  "description": "The exact UTF-8 bytes to sign in order to APPROVE this proposal. Fixed-field, newline-delimited, never JSON. Sign these bytes unmodified and send them back verbatim.\n\nTo REJECT, change the single `decision:` line from 'approve' to 'reject' and sign that. Everything else stays identical — the nonce covers both outcomes, so one challenge authorises one decision either way.",
+                  "type": "string"
+                },
+                "nonce": {
+                  "description": "Single-use, embedded in signing_payload. Consumed by the matching approve/reject; a second use is refused and recorded rather than ignored.",
+                  "type": "string"
+                },
+                "challenge_expires_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" }
               },
               "required": ["proposal_id", "kind", "state", "candidate", "proposed_by", "proposed_at"]
             }
@@ -800,21 +844,34 @@
               "additionalProperties": false,
               "properties": {
                 "proposal_id": { "type": "string" },
-                "record_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" }
+                "record_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+                "signature_verified": {
+                  "description": "Always true on a returned approval — an unverified one is an error, not a result. Present so the caller sees the check happened rather than inferring it.",
+                  "const": true
+                },
+                "key_id": { "type": "string" }
               },
-              "required": ["proposal_id", "record_id"]
+              "required": ["proposal_id", "record_id", "signature_verified"]
             }
           },
           "rejected": { "type": "array", "items": { "type": "string" } },
           "skipped": {
-            "description": "Proposals that were already decided or had expired. Reported rather than erroring, so a partial batch still succeeds.",
+            "description": "Proposals that could not be decided. Reported rather than erroring, so a partial batch still succeeds — but note that every signature-related reason means nothing changed for that proposal.",
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
                 "proposal_id": { "type": "string" },
-                "reason": { "enum": ["already_decided", "expired", "not_found"] }
+                "reason": {
+                  "enum": [
+                    "already_decided", "expired", "not_found",
+                    "signature_missing", "signature_invalid", "unknown_key", "revoked_key",
+                    "challenge_expired", "challenge_already_used", "candidate_changed",
+                    "reviewer_mismatch", "decision_mismatch"
+                  ]
+                },
+                "detail": { "type": "string", "maxLength": 1024 }
               },
               "required": ["proposal_id", "reason"]
             }
@@ -967,7 +1024,12 @@
   "errors": [
     { "code": "SCOPE_REQUIRED", "http": 400, "retryable": false, "meaning": "No scope was supplied and the server has no default. Scope is the isolation boundary; there is deliberately no wildcard." },
     { "code": "PROCEDURAL_WRITE_REQUIRES_PROPOSAL", "http": 400, "retryable": false, "meaning": "memory_remember was called with type 'procedural'. Use memory_propose_procedure." },
-    { "code": "APPROVAL_REQUIRES_HUMAN", "http": 403, "retryable": false, "meaning": "An approve was attempted by a caller identified as the daemon, or with no reviewed_by." },
+    { "code": "APPROVAL_SIGNATURE_REQUIRED", "http": 403, "retryable": false, "meaning": "approve or reject was called without a signature for one or more proposal ids. Nothing changed. This is the error an agent hits when it tries to approve its own proposal — it has the tool but not the key." },
+    { "code": "APPROVAL_SIGNATURE_INVALID", "http": 403, "retryable": false, "meaning": "The signature did not verify against the named key over the supplied payload, or a field inside the payload disagreed with the request (reviewer, decision, proposal, or scope). Nothing changed." },
+    { "code": "APPROVAL_KEY_UNKNOWN", "http": 403, "retryable": false, "meaning": "key_id is not a reviewer key in policy, or is marked revoked. A retired-but-not-revoked key still verifies existing signatures but cannot authorise new decisions." },
+    { "code": "APPROVAL_CHALLENGE_INVALID", "http": 409, "retryable": true, "meaning": "The nonce is unknown, expired, or already consumed. Re-list to get a fresh challenge and sign again. Retryable, but a repeat on a fresh challenge is not — that means the signature itself is wrong." },
+    { "code": "APPROVAL_CANDIDATE_CHANGED", "http": 409, "retryable": false, "meaning": "The candidate's hash no longer matches what was signed. The reviewer approved something other than what is now stored, so the decision is refused. Re-list and re-sign against the current content." },
+    { "code": "NO_REVIEWER_KEYS_CONFIGURED", "http": 503, "retryable": false, "meaning": "learning.approval.reviewers is empty, so no approval could ever be verified. The server refuses to start rather than silently accepting unsigned approvals." },
     { "code": "IDEMPOTENCY_CONFLICT", "http": 409, "retryable": false, "meaning": "The same idempotency key was reused within a scope with a different payload. The original record is returned unchanged in the error detail." },
     { "code": "CYCLE_NOT_FOUND", "http": 404, "retryable": false, "meaning": "The cycle_id does not exist or its working set has already expired." },
     { "code": "CYCLE_ALREADY_CLOSED", "http": 200, "retryable": false, "meaning": "Not an error. close_cycle on a closed cycle is a no-op returning already_closed:true, so a retried loop iteration does not fail." },

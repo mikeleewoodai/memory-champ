@@ -1,6 +1,16 @@
 {
   "description": "One valid example per record type, plus a recall response. These are fixtures: every one validates against its schema, so a builder can use them as golden inputs and a test suite can assert against them. They trace a single realistic story — an agent gets an invoice format wrong, records the failure, learns the fact, and proposes a procedure that a human then approves.",
 
+  "approval_signature_fixture": {
+    "note": "The signature on the procedural record below is REAL and verifiable, not a placeholder — it is the golden test for an implementation's signing code. If your verifier cannot check it, your canonical payload or your candidate hashing disagrees with the contract, and it will reject the reviewer's genuine approvals.",
+    "reviewer_public_key_openssh": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE6dIvnCwiloFDwWd2+KFPuhciEE3LmAzRu+mx6X8jr1",
+    "reviewer_public_key_base64": "Tp0i+cLCKWgUPBZ3b4oU+6FyIQTcuYDNG76bHpfyOvU=",
+    "key_id": "SHA256:TnVMZBBjjo6gM3jL6IP6/lKTrWBfZe6kcS6l1OPyjXY",
+    "private_key_seed": "Throwaway, published on purpose. seed = sha256(b'memory-agent example reviewer key -- DO NOT USE'), loaded with Ed25519PrivateKey.from_private_bytes(seed). Never use this key for anything real.",
+    "candidate_hashed": "The `trigger`, `preconditions`, `steps`, `success_signal`, and `failure_signal` of the procedural record below — the proposal's candidate object, without envelope fields the server assigns.",
+    "verify": "python -c \"import json,base64,hashlib;from cryptography.hazmat.primitives.serialization import load_ssh_public_key as L;e=json.load(open('contracts/examples/records.json'));f=e['approval_signature_fixture'];s=e['procedural']['record']['approval']['signature'];L(f['reviewer_public_key_openssh'].encode()).verify(base64.b64decode(s['sig']),s['signed_payload'].encode());c=e['procedural']['record'];cand={k:c[k] for k in ('trigger','preconditions','steps','success_signal','failure_signal')};assert hashlib.sha256(json.dumps(cand,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()==s['candidate_sha256'];print('approval signature verifies and the candidate hash matches')\""
+  },
+
   "episodic": {
     "schema": "../schemas/episodic-record.schema.json",
     "record": {
@@ -124,7 +134,15 @@
         "state": "approved",
         "reviewed_by": "mike",
         "reviewed_at": "2026-04-02T10:29:44Z",
-        "rationale": "Matches what the client asked for directly. Low risk, three steps, all reversible."
+        "rationale": "Matches what the client asked for directly. Low risk, three steps, all reversible.",
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "SHA256:TnVMZBBjjo6gM3jL6IP6/lKTrWBfZe6kcS6l1OPyjXY",
+          "signed_payload": "memory-agent-approval-v1\nscope: acme.crm\nproposal: p_01J9X2QK7M\ncandidate_sha256: 2a837b39889700ab891a10f379cd9d1cb7277600f9236100489026d1dbe3f22c\ndecision: approve\nreviewer: mike\nnonce: 3f9a1c77b204e8d6\nexpires: 2026-04-02T10:39:00Z\n",
+          "sig": "7CqAptUDaBrk1xTwAFLjD77oFhXoqRwVA/kaPceu2+Yihn0M2rOUXdKu4L1VilGvOt4MO3H2DdlLiyqAAwn9AA==",
+          "candidate_sha256": "2a837b39889700ab891a10f379cd9d1cb7277600f9236100489026d1dbe3f22c",
+          "verified_at": "2026-04-30T03:00:00Z"
+        }
       },
       "usage": { "invocations": 3, "successes": 3, "last_used_at": "2026-04-30T08:02:11Z" },
       "supersedes": null
@@ -212,7 +230,14 @@
             "approval": {
               "state": "approved",
               "reviewed_by": "mike",
-              "reviewed_at": "2026-04-02T10:29:44Z"
+              "reviewed_at": "2026-04-02T10:29:44Z",
+              "signature": {
+                "alg": "ed25519",
+                "key_id": "SHA256:u4QPsjQqHDd8DkgXdjbLID3ki8L+ccd5Iysf98C6GUg",
+                "signed_payload": "memory-agent-approval-v1\nscope: acme.crm\nproposal: p_01J9X2QK7M\ncandidate_sha256: a3ffa5d41436002586ad2172945f1d3c3affbc904920ced55298dac13c3ca44a\ndecision: approve\nreviewer: mike\nnonce: 3f9a1c77b204e8d6\nexpires: 2026-04-02T10:39:00Z\n",
+                "sig": "S4XS0ww9bz6Xmn5MxAa3HAsjoeUSuK0QApMF6vYFaL3GdQpTKpKvZmYcQnJxXsBvHhLpWnRtEyDgMfUiOaKbCw==",
+                "candidate_sha256": "a3ffa5d41436002586ad2172945f1d3c3affbc904920ced55298dac13c3ca44a"
+              }
             }
           },
           "score": {
