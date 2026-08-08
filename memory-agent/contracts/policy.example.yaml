@@ -1,0 +1,166 @@
+# =============================================================================
+# Memory Agent (CoALA) — policy, v1.0
+# =============================================================================
+# Everything tunable lives here. Nothing in this file changes the tool contract,
+# so a host never has to know how it is set.
+#
+# Copy to policy.yaml and edit. Values shown are the defaults the spec assumes;
+# acceptance criteria in the spec are written against them.
+# =============================================================================
+
+schema_version: "1.0"
+
+storage:
+  path: "./memory.db"
+  # WAL gives many readers and one writer on a single node. Multiple host
+  # orchestrations may read concurrently; writes serialise. See assumption A-2 —
+  # if this stops being enough, the storage layer moves to Postgres and the tool
+  # contract does not change.
+  journal_mode: WAL
+  busy_timeout_ms: 5000
+  # Refuse to start if sqlite-vec is missing, instead of silently degrading to
+  # keyword-only recall. Set false for constrained environments that would
+  # rather have partial recall than none.
+  require_vector_extension: true
+
+embedding:
+  # Local by default so the agent runs fully offline and no memory content
+  # leaves the machine. Note: Anthropic does not ship an embeddings model —
+  # for a hosted option use Voyage or another provider.
+  provider: "sentence-transformers"
+  model: "all-MiniLM-L6-v2"
+  dimensions: 384           # MUST equal meta.embedding_dim and the vec0 declaration
+  batch_size: 64
+  # Changing provider/model invalidates every stored vector. The daemon detects
+  # the mismatch via records.embedding_model and re-embeds in the background;
+  # recall stays available on the keyword path while it runs.
+  reembed_on_model_change: true
+
+retrieval:
+  # score = w_relevance*relevance + w_recency*recency + w_importance*importance
+  # relevance = reciprocal-rank fusion of the vector and BM25 rankings.
+  weights:
+    relevance: 0.5
+    recency: 0.2
+    importance: 0.3
+  # recency = exp(-ln(2) * hours_since_last_access / half_life_hours)
+  recency_half_life_hours: 72
+  rrf_k: 60                 # reciprocal-rank fusion constant
+
+  defaults:
+    strategy: hybrid        # hybrid | semantic | keyword | recent
+    k: 12
+    max_tokens: 1500        # hard ceiling on context_block; never exceeded
+    min_confidence: 0.0
+    types: [semantic, procedural]   # episodes are opt-in: most hosts want
+                                    # conclusions, not raw trajectory
+  candidate_pool: 100       # per-path candidates fetched before fusion and rerank
+
+  # Records marked pii/secret are withheld from context_block unless a caller
+  # explicitly opts in. They still appear in `records` so a host can see that
+  # something was withheld rather than concluding nothing exists.
+  redact_sensitive_in_context_block: true
+
+  # Procedures whose measured success rate falls below this are demoted in
+  # ranking and flagged. A procedure that keeps failing should stop being
+  # recommended before a human gets round to retiring it.
+  procedure_min_success_rate: 0.5
+  procedure_min_invocations_to_judge: 5
+
+working_memory:
+  cycle_ttl_hours: 24
+  # A cycle opened and never closed is evidence of a crash. The daemon reaps it
+  # to status='abandoned' and still promotes its observations to episodic
+  # records — losing the trace of a failure loses the most useful data there is.
+  reap_abandoned_cycles: true
+  max_observations_per_cycle: 512
+
+loop_safety:
+  # open_cycle compares the incoming loop_signature against recent cycles in the
+  # same scope. N repeats with no change in outcome returns loop_warning so the
+  # host can break out. The memory agent never halts the host itself — it has no
+  # authority over the host's control flow, only the obligation to warn.
+  repeat_threshold: 3
+  lookback_cycles: 20
+  lookback_minutes: 60
+  # Refuse writes beyond this rate per session. A runaway loop that ignores the
+  # warning should not be able to fill the database.
+  max_writes_per_session_per_minute: 120
+
+learning:
+  # Which writes may be committed without a human in the loop.
+  gates:
+    episodic: auto            # always auto — a record of what happened is not a claim
+    semantic: auto            # auto, but contradictions are surfaced, never resolved
+    procedural: proposal      # ALWAYS proposal. Not configurable to auto by design:
+                              # CoALA flags procedural updates as the riskiest
+                              # learning modality, so this one is a hard gate.
+  # An unattended daemon may create proposals; it may never approve one.
+  daemon_may_approve: false
+  proposal_expiry_days: 30
+
+  importance:
+    default: 0.5
+    # Bumps applied at write time. Deliberately crude — importance is a prior,
+    # not a verdict; retrieval evidence corrects it over time.
+    on_failure: +0.2          # failures teach more than successes
+    on_human_authored: +0.3
+    on_corroboration: +0.1
+
+forgetting:
+  # Nothing is destroyed by default. Decay changes ranking; TTL and tombstoning
+  # change visibility; only an explicit hard_delete removes bytes.
+  default_ttl_days:
+    episodic: 90
+    semantic: null            # no expiry; volatility drives recheck instead
+    procedural: null
+  volatility_recheck_days:
+    stable: 365
+    slow: 90
+    volatile: 14
+  # Episodes that were never recalled and carry no reward are the safest thing
+  # to compress. Consolidation replaces them with one summary record that keeps
+  # provenance back to the originals before they are tombstoned.
+  consolidate_episodes_older_than_days: 30
+  consolidate_min_cluster_size: 3
+  tombstone_retention_days: 180
+  hard_delete_requires_explicit_call: true
+
+daemon:
+  # Independent mode: the CoALA decision cycle run over the agent's own memory,
+  # with no host present. Propose -> evaluate -> select -> execute.
+  enabled: true
+  schedule: "0 */6 * * *"     # UTC
+  max_runtime_minutes: 20
+  passes:
+    reap_cycles: true         # close out crashed cycles
+    expire_ttl: true
+    consolidate: true         # episodes -> semantic facts
+    detect_contradictions: true
+    promote_procedures: true  # repeated successful patterns -> procedural proposals
+    reembed_drifted: true
+    vacuum: weekly
+  # Optional LLM adjudication for contradictions the triple form cannot settle.
+  # Off by default: the daemon runs unattended, and an unattended model call
+  # that rewrites stored facts is exactly the failure mode this design avoids.
+  llm_adjudication:
+    enabled: false
+    model: "claude-sonnet-5"
+    max_calls_per_run: 50
+
+observability:
+  log_level: info
+  # Log every recall query and its result ids. Needed to answer "why did the
+  # agent think that" after the fact.
+  log_recalls: true
+  # Never log record content at info level — memory contains whatever hosts put
+  # in it, which may be personal.
+  log_content: false
+  stats_slow_query_ms: 250
+
+limits:
+  max_scopes: 256
+  max_records_per_scope: 250000
+  # Past this, SQLite is the wrong tool and the storage layer should move to
+  # Postgres + pgvector. Stated as a number so the decision is not a vibe.
+  migrate_backend_above_total_records: 1000000

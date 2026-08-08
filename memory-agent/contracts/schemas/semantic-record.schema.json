@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/semantic-record.schema.json",
+  "title": "Semantic Record",
+  "description": "CoALA semantic memory: what is true. Facts about the world, the user, and the agent itself — distilled from episodes or asserted directly. Unlike an episode, a semantic record is timeless in form but not in validity: it carries a validity window and can be contradicted or superseded.",
+
+  "type": "object",
+  "allOf": [{ "$ref": "memory-envelope.schema.json#/$defs/envelope" }],
+  "unevaluatedProperties": false,
+
+  "properties": {
+    "type": { "const": "semantic" },
+
+    "subject": {
+      "description": "Optional triple form. When present, enables exact-match lookup and mechanical contradiction detection (same subject+predicate, different object). When absent, the fact lives only in `content` and contradictions must be found semantically.",
+      "type": "string",
+      "maxLength": 512
+    },
+    "predicate": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "object": {
+      "type": "string",
+      "maxLength": 2048
+    },
+
+    "valid_from": {
+      "description": "When this fact started being true. Distinct from created_at, which is when the agent learned it.",
+      "oneOf": [
+        { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+        { "type": "null" }
+      ]
+    },
+    "valid_to": {
+      "description": "When this fact stopped being true. Null means still valid. A record with valid_to in the past is excluded from recall by default but retained — knowing a fact used to be true is itself useful.",
+      "oneOf": [
+        { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+        { "type": "null" }
+      ]
+    },
+
+    "contradicts": {
+      "description": "Records this fact is in tension with. Populated by the reflection pass. Presence of a contradiction does NOT auto-resolve anything: both records stay active and recall surfaces the conflict, because silently picking a winner is how a memory store starts lying.",
+      "type": "array",
+      "items": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+      "maxItems": 64,
+      "uniqueItems": true
+    },
+
+    "corroborations": {
+      "description": "Number of independent episodes that support this fact. Reflection raises confidence as this grows; a fact seen once is not a fact seen often.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 1
+    },
+
+    "volatility": {
+      "description": "How fast this class of fact goes stale, which sets the default TTL and how aggressively reflection rechecks it. A phone number is stable; a project status is volatile.",
+      "enum": ["stable", "slow", "volatile"],
+      "default": "slow"
+    },
+
+    "sensitivity": {
+      "description": "Drives redaction policy. Records marked 'pii' or 'secret' are excluded from context_block by default and are the first targets of a memory_forget redaction sweep. 'secret' should never have been written here in the first place — the flag exists so it can be found and removed.",
+      "enum": ["none", "pii", "secret"],
+      "default": "none"
+    }
+  },
+
+  "dependentRequired": {
+    "subject": ["predicate"],
+    "predicate": ["subject"]
+  }
+}

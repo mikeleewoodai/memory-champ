@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/episodic-record.schema.json",
+  "title": "Episodic Record",
+  "description": "CoALA episodic memory: what happened. One record per step of one decision cycle. Ordered by the (session_id, cycle_id, step_no) triple, a run's full trajectory can be replayed exactly — which is what lets a crashed or retried loop recover rather than start cold.",
+
+  "type": "object",
+  "allOf": [{ "$ref": "memory-envelope.schema.json#/$defs/envelope" }],
+  "unevaluatedProperties": false,
+
+  "properties": {
+    "type": { "const": "episodic" },
+
+    "session_id": {
+      "description": "Groups every cycle belonging to one run of a host orchestration. Supplied by the host; the memory agent never invents it.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "cycle_id": {
+      "description": "One CoALA decision cycle. Assigned by memory_open_cycle, or synthesised per-write when a host uses memory_remember without cycles.",
+      "$ref": "memory-envelope.schema.json#/$defs/uuid"
+    },
+    "parent_cycle_id": {
+      "description": "Set when a subagent's cycle nests inside a parent orchestration's cycle. Lets a fan-out tree be reconstructed.",
+      "oneOf": [
+        { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+        { "type": "null" }
+      ]
+    },
+    "step_no": {
+      "description": "Monotonic step index within the cycle, starting at 0. Two records in one cycle never share a step_no.",
+      "type": "integer",
+      "minimum": 0
+    },
+
+    "goal": {
+      "description": "What the agent was trying to achieve at this step. Copied down from the cycle so a single record is interpretable on its own.",
+      "type": "string",
+      "maxLength": 2048
+    },
+    "action": {
+      "description": "The action taken. In CoALA terms this may be internal (reasoning, retrieval, learning) or external (grounding) — the memory agent records both but only ever performs internal ones itself.",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "class": {
+          "description": "CoALA action taxonomy. Grounding subtypes are recorded for hosts that perform them; the memory agent itself emits only internal actions.",
+          "enum": [
+            "reasoning",
+            "retrieval",
+            "learning",
+            "grounding.digital",
+            "grounding.dialogue",
+            "grounding.physical"
+          ]
+        },
+        "name": {
+          "description": "Concrete action or tool name, e.g. 'web_search' or 'memory_recall'.",
+          "type": "string",
+          "maxLength": 255
+        },
+        "input": {
+          "description": "Arguments the action was called with. Redacted in place when memory_forget runs in redact mode.",
+          "type": "object"
+        }
+      },
+      "required": ["class", "name"]
+    },
+    "observation": {
+      "description": "What came back. Written BEFORE the host proceeds, so a crash mid-cycle leaves evidence rather than a hole.",
+      "type": "string",
+      "maxLength": 8192
+    },
+
+    "outcome": {
+      "description": "Result of the step. 'abandoned' is set by the daemon when it reaps a cycle that was opened and never closed.",
+      "enum": ["success", "failure", "partial", "abandoned", "unknown"],
+      "default": "unknown"
+    },
+    "reward": {
+      "description": "Optional scalar signal, -1 (harmful) to 1 (ideal). Reflection weights high-reward episodes more heavily when distilling semantic facts and procedural candidates.",
+      "oneOf": [
+        { "type": "number", "minimum": -1, "maximum": 1 },
+        { "type": "null" }
+      ]
+    },
+    "error": {
+      "description": "Structured failure detail when outcome is 'failure'. Repeated identical errors across cycles are the strongest signal a procedural fix is needed.",
+      "oneOf": [
+        {
+          "type": "object",
+          "unevaluatedProperties": false,
+          "properties": {
+            "kind": { "type": "string", "maxLength": 255 },
+            "message": { "type": "string", "maxLength": 4096 },
+            "retryable": { "type": "boolean" }
+          },
+          "required": ["kind"]
+        },
+        { "type": "null" }
+      ]
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tokens": {
+      "description": "Token accounting for the step, when the host tracks it. Enables cost analysis over a trajectory.",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "input": { "type": "integer", "minimum": 0 },
+        "output": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+
+  "required": ["session_id", "cycle_id", "step_no"]
+}

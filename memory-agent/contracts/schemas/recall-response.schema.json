@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/recall-response.schema.json",
+  "title": "Recall Response",
+  "description": "What memory_recall returns.\n\nTwo consumers, one response. `records` is for a host that wants to reason over structure. `context_block` is for a host that just wants text to paste into a prompt — pre-formatted, token-bounded, and never exceeding the caller's max_tokens. The second is what makes this safe to call inside a loop: memory can never quietly eat the host's context window.",
+
+  "type": "object",
+  "unevaluatedProperties": false,
+
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+
+    "records": {
+      "description": "Ranked results, best first. Each entry wraps the record with the score that got it there, so a host can tune retrieval without guessing.",
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/scored_record" }
+    },
+
+    "context_block": {
+      "description": "Ready-to-inject text rendering of the records that fit the budget. Records marked sensitivity='pii' or 'secret' are excluded unless the caller explicitly opted in. Empty string when nothing was recalled — never a placeholder sentence, which a model would otherwise treat as a fact.",
+      "type": "string"
+    },
+    "token_count": {
+      "description": "Actual token count of context_block, measured not estimated. Guaranteed <= the caller's max_tokens.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "description": "True when the token budget cut off records that otherwise qualified.",
+      "type": "boolean"
+    },
+    "omitted_count": {
+      "description": "How many qualifying records did not fit. A host seeing a large number here should either raise max_tokens or narrow its query — not assume it saw everything.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "excluded_sensitive_count": {
+      "description": "How many records were withheld from context_block on sensitivity grounds. Reported so redaction is visible rather than silent.",
+      "type": "integer",
+      "minimum": 0
+    },
+
+    "contradictions": {
+      "description": "Pairs among the returned records that are in tension. Surfaced rather than resolved: the memory agent will not pick a winner on the host's behalf.",
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "unevaluatedProperties": false,
+        "properties": {
+          "a": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+          "b": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+          "note": { "type": "string", "maxLength": 1024 }
+        },
+        "required": ["a", "b"]
+      }
+    },
+
+    "query_echo": {
+      "description": "The effective query after defaults and policy were applied. Echoed back because a host that gets surprising results needs to see what was actually run, not what it thinks it asked.",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "query": { "type": "string" },
+        "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+        "types": {
+          "type": "array",
+          "items": { "enum": ["episodic", "semantic", "procedural"] },
+          "uniqueItems": true
+        },
+        "strategy": { "enum": ["hybrid", "semantic", "keyword", "recent"] },
+        "k": { "type": "integer", "minimum": 1 },
+        "max_tokens": { "type": "integer", "minimum": 1 },
+        "weights": { "$ref": "#/$defs/weights" }
+      }
+    },
+
+    "latency_ms": { "type": "integer", "minimum": 0 },
+
+    "degraded": {
+      "description": "Set when recall ran without full capability — e.g. the vector extension failed to load and the query fell back to keyword-only. The result is still usable, but a host must not read a thin result as 'nothing is known'.",
+      "oneOf": [
+        {
+          "type": "object",
+          "unevaluatedProperties": false,
+          "properties": {
+            "reason": { "enum": ["vector_unavailable", "embedder_unavailable", "index_rebuilding", "timeout"] },
+            "detail": { "type": "string", "maxLength": 1024 }
+          },
+          "required": ["reason"]
+        },
+        { "type": "null" }
+      ]
+    }
+  },
+
+  "required": ["schema_version", "records", "context_block", "token_count", "truncated"],
+
+  "$defs": {
+    "scored_record": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "rank": { "type": "integer", "minimum": 1 },
+        "record": {
+          "description": "The full record, matching whichever of the three record schemas its type indicates.",
+          "oneOf": [
+            { "$ref": "episodic-record.schema.json" },
+            { "$ref": "semantic-record.schema.json" },
+            { "$ref": "procedural-record.schema.json" }
+          ]
+        },
+        "score": { "$ref": "#/$defs/score_breakdown" },
+        "in_context_block": {
+          "description": "Whether this record made it into context_block, or was returned as structure only.",
+          "type": "boolean"
+        }
+      },
+      "required": ["rank", "record", "score"]
+    },
+
+    "score_breakdown": {
+      "description": "Every term that produced the total, so retrieval is tunable rather than a black box.",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "total": { "type": "number" },
+        "relevance": {
+          "description": "Fused relevance: reciprocal-rank fusion of the vector and keyword rankings.",
+          "type": "number"
+        },
+        "recency": {
+          "description": "exp(-lambda * hours_since_last_access), lambda derived from the configured half-life.",
+          "type": "number"
+        },
+        "importance": { "$ref": "memory-envelope.schema.json#/$defs/unit_interval" },
+        "vector_similarity": {
+          "description": "Raw cosine similarity, or null when the vector path was unavailable or the strategy was keyword-only.",
+          "oneOf": [{ "type": "number" }, { "type": "null" }]
+        },
+        "keyword_rank": {
+          "description": "BM25 rank from FTS5, or null when the record was matched only by vector.",
+          "oneOf": [{ "type": "number" }, { "type": "null" }]
+        }
+      },
+      "required": ["total"]
+    },
+
+    "weights": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "relevance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recency": { "type": "number", "minimum": 0, "maximum": 1 },
+        "importance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recency_half_life_hours": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    }
+  }
+}

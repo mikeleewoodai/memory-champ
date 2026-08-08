@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/working-set.schema.json",
+  "title": "Working Set",
+  "description": "CoALA working memory for one decision cycle: the goal in play, what was retrieved into it, and what has been observed so far.\n\nThis is deliberately NOT durable knowledge. It is a short-lived scratch buffer that exists so a loop can survive a crash, so a trajectory can be reconstructed, and so runaway loops can be detected. It expires. Anything worth keeping has to be promoted into a long-term record by memory_remember or memory_close_cycle.\n\nThe working set is the memory agent's, not the host's: it does not attempt to own or mirror the host's context window.",
+
+  "type": "object",
+  "unevaluatedProperties": false,
+
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+
+    "cycle_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+    "session_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "parent_cycle_id": {
+      "description": "Set when this cycle runs inside another agent's cycle, e.g. a subagent in a fan-out.",
+      "oneOf": [
+        { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+        { "type": "null" }
+      ]
+    },
+    "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+
+    "goal": {
+      "description": "What the host is trying to achieve this cycle, in its own words.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "loop_signature": {
+      "description": "Stable hash of the normalised goal plus the first action taken. Two cycles with the same signature and no change in outcome are the definition of a stuck loop; this field is what makes that detectable cheaply.",
+      "type": "string",
+      "maxLength": 128
+    },
+
+    "status": {
+      "description": "'abandoned' is set by the daemon when it reaps a cycle that was opened and never closed — an unclosed cycle is evidence of a crash, not something to discard.",
+      "enum": ["open", "closed", "abandoned"]
+    },
+    "opened_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+    "closed_at": {
+      "oneOf": [
+        { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+        { "type": "null" }
+      ]
+    },
+    "expires_at": {
+      "description": "TTL for the scratch buffer itself. Default 24h. Expiry destroys the working set, never the episodic records promoted out of it.",
+      "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+    },
+
+    "retrieved": {
+      "description": "Records pulled into working memory this cycle. `injected` distinguishes what was actually handed to the host from what was merely a candidate, so recall quality can be evaluated after the fact.",
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "unevaluatedProperties": false,
+        "properties": {
+          "record_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+          "score": { "type": "number" },
+          "injected": { "type": "boolean", "default": false },
+          "retrieved_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" }
+        },
+        "required": ["record_id"]
+      }
+    },
+
+    "observations": {
+      "description": "Append-only log of what happened this cycle, written before the host acts on each result. On close these become episodic records; on abandonment they are still promoted, marked outcome='abandoned'.",
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "unevaluatedProperties": false,
+        "properties": {
+          "step_no": { "type": "integer", "minimum": 0 },
+          "at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+          "text": { "type": "string", "maxLength": 8192 }
+        },
+        "required": ["step_no", "at", "text"]
+      }
+    },
+
+    "outcome": {
+      "enum": ["success", "failure", "partial", "abandoned", "unknown"],
+      "default": "unknown"
+    }
+  },
+
+  "required": ["schema_version", "cycle_id", "session_id", "scope", "goal", "status", "opened_at", "expires_at"]
+}

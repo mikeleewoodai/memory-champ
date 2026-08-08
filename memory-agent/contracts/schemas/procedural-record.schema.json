@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/procedural-record.schema.json",
+  "title": "Procedural Record",
+  "description": "CoALA procedural memory: how to do something. Learned routines, playbooks, and heuristics.\n\nDeliberate narrowing of CoALA: the paper's procedural memory includes the agent's own code, and the authors flag rewriting it as the riskiest learning modality. This agent stores procedures as DATA that a host reads and chooses to follow — never as executable code, and never applied to itself. Every procedural write is additionally gated behind human approval before it becomes retrievable.",
+
+  "type": "object",
+  "allOf": [{ "$ref": "memory-envelope.schema.json#/$defs/envelope" }],
+  "unevaluatedProperties": false,
+
+  "properties": {
+    "type": { "const": "procedural" },
+
+    "trigger": {
+      "description": "The condition under which this procedure applies. Recall matches a query against this first — a procedure retrieved in the wrong situation is worse than no procedure at all.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "preconditions": {
+      "description": "What must already be true before the steps are safe to run. A host that cannot verify a precondition should not run the procedure.",
+      "type": "array",
+      "items": { "type": "string", "maxLength": 1024 },
+      "maxItems": 32
+    },
+    "steps": {
+      "description": "Ordered instructions in natural language. Instructions, not code: the host decides how to carry each one out.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "unevaluatedProperties": false,
+        "properties": {
+          "n": { "type": "integer", "minimum": 1 },
+          "instruction": { "type": "string", "minLength": 1, "maxLength": 2048 },
+          "tool": {
+            "description": "Suggested tool, if the procedure was learned in a context that had one. Advisory only — the host is not obliged to have it.",
+            "type": "string",
+            "maxLength": 255
+          },
+          "on_failure": {
+            "description": "What to do if this step fails, e.g. 'skip', 'abort', or a natural-language fallback.",
+            "type": "string",
+            "maxLength": 1024
+          }
+        },
+        "required": ["n", "instruction"]
+      }
+    },
+    "success_signal": {
+      "description": "How a host knows the procedure worked. Without this the usage counters below are unfalsifiable.",
+      "type": "string",
+      "maxLength": 1024
+    },
+    "failure_signal": {
+      "type": "string",
+      "maxLength": 1024
+    },
+
+    "approval": {
+      "description": "The gate. A procedural record is invisible to recall until state is 'approved'. Nothing — not the daemon, not a host, not reflection — may set 'approved' without a human reviewer, and unattended runs may only ever queue candidates as 'pending'.",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "state": { "enum": ["pending", "approved", "rejected"] },
+        "reviewed_by": {
+          "description": "Identifier of the human who approved or rejected. Must be absent while state is 'pending'.",
+          "oneOf": [{ "type": "string", "maxLength": 255 }, { "type": "null" }]
+        },
+        "reviewed_at": {
+          "oneOf": [
+            { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "rationale": {
+          "description": "Why it was approved or rejected. Rejections are kept, not deleted: a rejected candidate that keeps being re-proposed is a signal about the proposer.",
+          "type": "string",
+          "maxLength": 2048
+        }
+      },
+      "required": ["state"],
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "enum": ["approved", "rejected"] } }, "required": ["state"] },
+          "then": { "required": ["reviewed_by", "reviewed_at"] }
+        }
+      ]
+    },
+
+    "usage": {
+      "description": "Whether the learned procedure actually works in practice. A procedure with many invocations and few successes should be revised or retired — this is the feedback loop that keeps procedural memory honest.",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "invocations": { "type": "integer", "minimum": 0, "default": 0 },
+        "successes": { "type": "integer", "minimum": 0, "default": 0 },
+        "last_used_at": {
+          "oneOf": [
+            { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+
+    "supersedes": {
+      "description": "Prior procedure this one replaces. Revision is normal; the old version is marked superseded rather than deleted so a regression can be traced.",
+      "oneOf": [
+        { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+        { "type": "null" }
+      ]
+    }
+  },
+
+  "required": ["trigger", "steps", "approval"]
+}

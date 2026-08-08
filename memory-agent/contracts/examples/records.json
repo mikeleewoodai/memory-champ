@@ -1,0 +1,253 @@
+{
+  "description": "One valid example per record type, plus a recall response. These are fixtures: every one validates against its schema, so a builder can use them as golden inputs and a test suite can assert against them. They trace a single realistic story — an agent gets an invoice format wrong, records the failure, learns the fact, and proposes a procedure that a human then approves.",
+
+  "episodic": {
+    "schema": "../schemas/episodic-record.schema.json",
+    "record": {
+      "schema_version": "1.0",
+      "id": "0d5f2a91-3c44-4e18-9b02-7a1c6e8d4f30",
+      "type": "episodic",
+      "scope": "acme.crm",
+      "content": "Sent the March invoice to Acme as a Word document. Client replied asking for PDF with the PO number in the subject line.",
+      "payload": { "invoice_ref": "INV-2026-0312" },
+      "created_at": "2026-03-12T14:22:07Z",
+      "last_accessed_at": "2026-03-12T14:22:07Z",
+      "access_count": 0,
+      "importance": 0.7,
+      "confidence": 1.0,
+      "provenance": { "source": "host", "agent": "crm-builder" },
+      "tags": ["invoicing", "acme"],
+      "expires_at": null,
+      "status": "active",
+      "superseded_by": null,
+      "idempotency_key": "run-4417-step-3",
+      "embedding_model": "all-MiniLM-L6-v2",
+
+      "session_id": "run-4417",
+      "cycle_id": "b7e1c204-9f33-4a5d-8e61-2d0f7c9a1b48",
+      "parent_cycle_id": null,
+      "step_no": 3,
+      "goal": "Send Acme the March invoice",
+      "action": {
+        "class": "grounding.digital",
+        "name": "send_email",
+        "input": { "to": "billing@acme.example", "attachment": "invoice-march.docx" }
+      },
+      "observation": "Client replied within the hour: 'can you resend as PDF, and put the PO number in the subject?'",
+      "outcome": "failure",
+      "reward": -0.4,
+      "error": { "kind": "wrong_format", "message": "Recipient rejected .docx", "retryable": true },
+      "duration_ms": 1840
+    }
+  },
+
+  "semantic": {
+    "schema": "../schemas/semantic-record.schema.json",
+    "record": {
+      "schema_version": "1.0",
+      "id": "3f8b6c17-52a9-4d70-b1e4-9c8a0f2e5d63",
+      "type": "semantic",
+      "scope": "acme.crm",
+      "content": "Acme requires invoices as PDF with the PO number in the email subject line.",
+      "created_at": "2026-03-12T15:01:33Z",
+      "last_accessed_at": "2026-04-02T09:14:50Z",
+      "access_count": 6,
+      "importance": 0.8,
+      "confidence": 0.9,
+      "provenance": {
+        "source": "daemon",
+        "agent": "memory-agent.daemon",
+        "derived_from": ["0d5f2a91-3c44-4e18-9b02-7a1c6e8d4f30"],
+        "note": "Distilled from a single failed send plus the client's explicit correction."
+      },
+      "tags": ["invoicing", "acme", "client-preference"],
+      "expires_at": null,
+      "status": "active",
+      "superseded_by": null,
+      "idempotency_key": null,
+      "embedding_model": "all-MiniLM-L6-v2",
+
+      "subject": "acme",
+      "predicate": "invoice_format",
+      "object": "PDF, PO number in subject line",
+      "valid_from": "2026-03-12T00:00:00Z",
+      "valid_to": null,
+      "contradicts": [],
+      "corroborations": 1,
+      "volatility": "slow",
+      "sensitivity": "none"
+    }
+  },
+
+  "procedural": {
+    "schema": "../schemas/procedural-record.schema.json",
+    "note": "This is what the record looks like AFTER approval. Before approval the same candidate sits in the `proposals` table and is unreachable by recall.",
+    "record": {
+      "schema_version": "1.0",
+      "id": "9a2d4e88-71b6-4c39-a0f5-3e7b1d6c8409",
+      "type": "procedural",
+      "scope": "acme.crm",
+      "content": "Invoicing Acme: export the invoice as PDF, put the PO number in the email subject, cc billing@acme.example. Triggered when sending any invoice to Acme.",
+      "created_at": "2026-04-02T10:30:00Z",
+      "last_accessed_at": "2026-04-30T08:02:11Z",
+      "access_count": 3,
+      "importance": 0.85,
+      "confidence": 0.9,
+      "provenance": {
+        "source": "daemon",
+        "agent": "memory-agent.daemon",
+        "derived_from": [
+          "0d5f2a91-3c44-4e18-9b02-7a1c6e8d4f30",
+          "3f8b6c17-52a9-4d70-b1e4-9c8a0f2e5d63"
+        ]
+      },
+      "tags": ["invoicing", "acme"],
+      "expires_at": null,
+      "status": "active",
+      "superseded_by": null,
+      "idempotency_key": null,
+      "embedding_model": "all-MiniLM-L6-v2",
+
+      "trigger": "Sending any invoice to Acme",
+      "preconditions": [
+        "A PO number exists for the engagement",
+        "The invoice has been approved internally"
+      ],
+      "steps": [
+        { "n": 1, "instruction": "Export the invoice as PDF, not Word.", "on_failure": "abort" },
+        { "n": 2, "instruction": "Put the PO number in the email subject line, format 'Invoice <ref> — PO <po>'." },
+        { "n": 3, "instruction": "Send to billing@acme.example.", "tool": "send_email" }
+      ],
+      "success_signal": "No reply asking for a resend within 2 business days",
+      "failure_signal": "Client replies requesting a different format or a missing PO",
+      "approval": {
+        "state": "approved",
+        "reviewed_by": "mike",
+        "reviewed_at": "2026-04-02T10:29:44Z",
+        "rationale": "Matches what the client asked for directly. Low risk, three steps, all reversible."
+      },
+      "usage": { "invocations": 3, "successes": 3, "last_used_at": "2026-04-30T08:02:11Z" },
+      "supersedes": null
+    }
+  },
+
+  "working_set": {
+    "schema": "../schemas/working-set.schema.json",
+    "record": {
+      "schema_version": "1.0",
+      "cycle_id": "b7e1c204-9f33-4a5d-8e61-2d0f7c9a1b48",
+      "session_id": "run-4417",
+      "parent_cycle_id": null,
+      "scope": "acme.crm",
+      "goal": "Send Acme the March invoice",
+      "loop_signature": "b3d9f1a7c2e84056",
+      "status": "closed",
+      "outcome": "failure",
+      "opened_at": "2026-03-12T14:20:00Z",
+      "closed_at": "2026-03-12T14:25:12Z",
+      "expires_at": "2026-03-13T14:20:00Z",
+      "retrieved": [
+        {
+          "record_id": "3f8b6c17-52a9-4d70-b1e4-9c8a0f2e5d63",
+          "score": 0.71,
+          "injected": true,
+          "retrieved_at": "2026-03-12T14:20:01Z"
+        }
+      ],
+      "observations": [
+        { "step_no": 0, "at": "2026-03-12T14:20:30Z", "text": "Located the March invoice, ref INV-2026-0312." },
+        { "step_no": 3, "at": "2026-03-12T14:22:07Z", "text": "Client replied asking for PDF with the PO number in the subject." }
+      ]
+    }
+  },
+
+  "recall_response": {
+    "schema": "../schemas/recall-response.schema.json",
+    "note": "Response to: memory_recall(scope='acme.crm', query='how does Acme want invoices sent', max_tokens=1200). Note that context_block carries only the two records that fit, while `records` reports what was ranked — and that a third qualifying record was withheld on sensitivity grounds rather than silently dropped.",
+    "response": {
+      "schema_version": "1.0",
+      "records": [
+        {
+          "rank": 1,
+          "record": {
+            "schema_version": "1.0",
+            "id": "3f8b6c17-52a9-4d70-b1e4-9c8a0f2e5d63",
+            "type": "semantic",
+            "scope": "acme.crm",
+            "content": "Acme requires invoices as PDF with the PO number in the email subject line.",
+            "created_at": "2026-03-12T15:01:33Z",
+            "status": "active",
+            "importance": 0.8,
+            "confidence": 0.9,
+            "subject": "acme",
+            "predicate": "invoice_format",
+            "object": "PDF, PO number in subject line"
+          },
+          "score": {
+            "total": 0.812,
+            "relevance": 0.031,
+            "recency": 0.44,
+            "importance": 0.8,
+            "vector_similarity": 0.79,
+            "keyword_rank": 1
+          },
+          "in_context_block": true
+        },
+        {
+          "rank": 2,
+          "record": {
+            "schema_version": "1.0",
+            "id": "9a2d4e88-71b6-4c39-a0f5-3e7b1d6c8409",
+            "type": "procedural",
+            "scope": "acme.crm",
+            "content": "Invoicing Acme: export the invoice as PDF, put the PO number in the email subject, cc billing@acme.example. Triggered when sending any invoice to Acme.",
+            "created_at": "2026-04-02T10:30:00Z",
+            "status": "active",
+            "trigger": "Sending any invoice to Acme",
+            "steps": [
+              { "n": 1, "instruction": "Export the invoice as PDF, not Word." },
+              { "n": 2, "instruction": "Put the PO number in the email subject line." },
+              { "n": 3, "instruction": "Send to billing@acme.example." }
+            ],
+            "approval": {
+              "state": "approved",
+              "reviewed_by": "mike",
+              "reviewed_at": "2026-04-02T10:29:44Z"
+            }
+          },
+          "score": {
+            "total": 0.764,
+            "relevance": 0.029,
+            "recency": 0.61,
+            "importance": 0.85,
+            "vector_similarity": 0.74,
+            "keyword_rank": 2
+          },
+          "in_context_block": true
+        }
+      ],
+      "context_block": "## Known about acme.crm\n\n[fact, confidence 0.9] Acme requires invoices as PDF with the PO number in the email subject line.\n\n[procedure, 3/3 successful] When sending any invoice to Acme:\n  1. Export the invoice as PDF, not Word.\n  2. Put the PO number in the email subject line.\n  3. Send to billing@acme.example.\n",
+      "token_count": 96,
+      "truncated": false,
+      "omitted_count": 0,
+      "excluded_sensitive_count": 1,
+      "contradictions": [],
+      "query_echo": {
+        "query": "how does Acme want invoices sent",
+        "scope": "acme.crm",
+        "types": ["semantic", "procedural"],
+        "strategy": "hybrid",
+        "k": 12,
+        "max_tokens": 1200,
+        "weights": {
+          "relevance": 0.5,
+          "recency": 0.2,
+          "importance": 0.3,
+          "recency_half_life_hours": 72
+        }
+      },
+      "latency_ms": 41,
+      "degraded": null
+    }
+  }
+}

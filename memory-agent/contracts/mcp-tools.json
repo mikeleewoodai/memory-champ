@@ -1,0 +1,980 @@
+{
+  "schema_version": "1.0",
+  "title": "Memory Agent (CoALA) — MCP tool contract",
+  "description": "The complete surface an orchestration can call. Nine tools, covering CoALA's three internal action classes (retrieval, reasoning, learning) plus working-memory lifecycle and introspection.\n\nThere are no grounding actions. This server never reaches the network, never touches the filesystem outside its own database, and never talks to a user. That closed world is what makes it safe to drop into an arbitrary orchestration: the worst it can do is return bad memories.\n\nEmbedded input/output schemas are JSON Schema draft 2020-12 and carry $ids in the same namespace as the record schemas, so relative $refs such as 'recall-response.schema.json' resolve against the contracts/schemas/ directory.",
+
+  "server": {
+    "name": "memory-agent",
+    "version": "1.0.0",
+    "tool_prefix": "memory_",
+    "transport": ["stdio", "streamable-http"],
+    "capabilities": { "tools": {}, "logging": {} },
+    "notes": [
+      "v1 has no authentication. Any orchestration that can reach the server can read and write every scope it knows the name of. Run it over stdio, or bind it to loopback. See assumption A-3.",
+      "Scope is the isolation boundary. A host should be configured with the scope it owns and pass that scope on every call.",
+      "Single writer. Concurrent readers are fine; concurrent writers serialise on SQLite's write lock with a 5s busy timeout."
+    ]
+  },
+
+  "tools": [
+    {
+      "name": "memory_open_cycle",
+      "title": "Open a decision cycle",
+      "coala": "working memory",
+      "description": "Begin one CoALA decision cycle and get a working-memory handle for it.\n\nOptional. A host that only wants recall and remember never calls this. Opening a cycle buys three things: the trajectory is reconstructable after a crash, relevant memory is pre-loaded in the same round trip as the handle, and runaway loops get detected.\n\nCheck `loop_warning` on every response. It is set when this same goal and first action have recurred without the outcome changing — the signature of a stuck loop. The server will not halt the host; it has no authority over the host's control flow, only the obligation to warn.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_open_cycle.input.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+          "session_id": {
+            "description": "Groups every cycle of one run. Supplied by the host — the server never invents it, because only the host knows where its run boundaries are.",
+            "type": "string", "minLength": 1, "maxLength": 255
+          },
+          "goal": {
+            "description": "What this cycle is trying to achieve, in the host's own words. Also the basis of the loop signature.",
+            "type": "string", "minLength": 1, "maxLength": 2048
+          },
+          "parent_cycle_id": {
+            "description": "Set when this cycle runs inside another agent's cycle, e.g. a subagent in a fan-out. Lets the whole tree be reconstructed later.",
+            "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/uuid" }, { "type": "null" }]
+          },
+          "preload": {
+            "description": "Run a recall against the goal and return it with the handle, saving a round trip. Defaults to on: a cycle that opens without context is a cycle that starts cold.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": true },
+              "query": {
+                "description": "Overrides the goal as the recall query when the goal is a poor search string.",
+                "type": "string", "maxLength": 2048
+              },
+              "types": {
+                "type": "array",
+                "items": { "enum": ["episodic", "semantic", "procedural"] },
+                "uniqueItems": true,
+                "default": ["semantic", "procedural"]
+              },
+              "k": { "type": "integer", "minimum": 1, "maximum": 100, "default": 12 },
+              "max_tokens": { "type": "integer", "minimum": 1, "maximum": 32000, "default": 1500 }
+            }
+          },
+          "idempotency_key": {
+            "description": "Reopening with the same key returns the existing open cycle instead of creating a second one. Use the host's own loop iteration id.",
+            "type": "string", "minLength": 1, "maxLength": 255
+          },
+          "ttl_hours": { "type": "number", "exclusiveMinimum": 0, "maximum": 720, "default": 24 }
+        },
+        "required": ["scope", "session_id", "goal"]
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_open_cycle.output.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cycle_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+          "session_id": { "type": "string" },
+          "opened_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+          "expires_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+          "reused": {
+            "description": "True when an idempotency key matched an already-open cycle and no new one was created.",
+            "type": "boolean"
+          },
+          "preloaded": {
+            "oneOf": [{ "$ref": "recall-response.schema.json" }, { "type": "null" }]
+          },
+          "loop_warning": {
+            "description": "Non-null when this cycle looks like a repeat of recent ones with no change in outcome.",
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "loop_signature": { "type": "string" },
+                  "repeats": { "type": "integer", "minimum": 1 },
+                  "window_minutes": { "type": "integer", "minimum": 1 },
+                  "similar_cycle_ids": {
+                    "type": "array",
+                    "items": { "$ref": "memory-envelope.schema.json#/$defs/uuid" }
+                  },
+                  "last_outcomes": {
+                    "type": "array",
+                    "items": { "enum": ["success", "failure", "partial", "abandoned", "unknown"] }
+                  },
+                  "advice": {
+                    "description": "Plain-language suggestion, e.g. 'this goal has failed 3 times with the same error; change approach or escalate'.",
+                    "type": "string"
+                  }
+                },
+                "required": ["loop_signature", "repeats", "advice"]
+              },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["cycle_id", "session_id", "opened_at", "expires_at", "loop_warning"]
+      }
+    },
+
+    {
+      "name": "memory_close_cycle",
+      "title": "Close a decision cycle",
+      "coala": "working memory -> learning",
+      "description": "End a cycle and promote its working memory into durable episodic records.\n\nThis is where a cycle's observations stop being scratch and become memory. Closing is what makes the run learnable; a cycle that is never closed is reaped by the daemon as 'abandoned' and its observations are promoted anyway, because losing the trace of a crash loses the most useful data there is.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_close_cycle.input.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cycle_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+          "outcome": { "enum": ["success", "failure", "partial", "abandoned", "unknown"] },
+          "summary": {
+            "description": "One-paragraph account of what happened. Stored as a single episodic record and embedded, so future recalls can find the cycle by what it was about rather than by id.",
+            "type": "string", "maxLength": 8192
+          },
+          "reward": {
+            "description": "Optional scalar, -1 to 1. Reflection weights high-reward cycles more heavily when distilling facts and promoting procedures.",
+            "oneOf": [{ "type": "number", "minimum": -1, "maximum": 1 }, { "type": "null" }]
+          },
+          "importance": { "$ref": "memory-envelope.schema.json#/$defs/unit_interval" },
+          "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 32 },
+          "promote_observations": {
+            "description": "Write one episodic record per observation in addition to the summary. Off by default: most loops produce far more steps than are worth keeping, and the summary usually carries the signal.",
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": ["cycle_id", "outcome"]
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_close_cycle.output.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cycle_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+          "closed_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+          "already_closed": {
+            "description": "True when the cycle was already closed. The call is a no-op rather than an error, so a retried loop iteration does not fail here.",
+            "type": "boolean"
+          },
+          "summary_record_id": {
+            "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/uuid" }, { "type": "null" }]
+          },
+          "episodic_record_ids": {
+            "type": "array",
+            "items": { "$ref": "memory-envelope.schema.json#/$defs/uuid" }
+          },
+          "duration_ms": { "type": "integer", "minimum": 0 },
+          "steps_recorded": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["cycle_id", "closed_at", "already_closed", "episodic_record_ids"]
+      }
+    },
+
+    {
+      "name": "memory_recall",
+      "title": "Recall from long-term memory",
+      "coala": "internal action: retrieval",
+      "description": "Hybrid search across long-term memory. CoALA's retrieval action.\n\nReturns two things for two kinds of caller: `records` for a host that wants to reason over structure, and `context_block` for a host that just wants text to paste into a prompt. The context block is measured, not estimated, and never exceeds max_tokens — that guarantee is what makes this safe to call on every iteration of a loop.\n\nRanking is relevance (vector and BM25 fused), recency, and importance, weighted per policy. Defaults return semantic facts and approved procedures; raw episodes are opt-in, because most hosts want conclusions rather than transcript.\n\nIf `degraded` is set, recall ran without full capability — a thin result then means 'could not look properly', not 'nothing is known'. Do not treat the two as the same.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_recall.input.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+          "query": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "types": {
+            "type": "array",
+            "items": { "enum": ["episodic", "semantic", "procedural"] },
+            "uniqueItems": true,
+            "default": ["semantic", "procedural"]
+          },
+          "strategy": {
+            "description": "hybrid fuses vector and keyword. semantic is vector only. keyword is BM25 only, and is the correct choice for exact identifiers. recent ignores relevance and returns the newest matching records.",
+            "enum": ["hybrid", "semantic", "keyword", "recent"],
+            "default": "hybrid"
+          },
+          "k": { "type": "integer", "minimum": 1, "maximum": 200, "default": 12 },
+          "max_tokens": {
+            "description": "Hard ceiling on context_block. The response reports the actual count and whether anything was cut.",
+            "type": "integer", "minimum": 1, "maximum": 32000, "default": 1500
+          },
+          "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 32 },
+          "time_window": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "from": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+              "to": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" }
+            }
+          },
+          "min_confidence": { "$ref": "memory-envelope.schema.json#/$defs/unit_interval" },
+          "session_id": {
+            "description": "Restrict episodic results to one run. Ignored for semantic and procedural records, which are not run-scoped.",
+            "type": "string", "maxLength": 255
+          },
+          "cycle_id": {
+            "description": "When set, the recall is logged into that cycle's working memory, so what the agent was shown is reconstructable alongside what it did.",
+            "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/uuid" }, { "type": "null" }]
+          },
+          "include_sensitive": {
+            "description": "Include records marked pii/secret in context_block. Off by default; when off, the response still reports how many were withheld so redaction is visible rather than silent.",
+            "type": "boolean", "default": false
+          },
+          "include_superseded": { "type": "boolean", "default": false },
+          "weights": {
+            "description": "Per-call override of the policy ranking weights. Use for evaluation, not as a substitute for tuning policy.",
+            "$ref": "recall-response.schema.json#/$defs/weights"
+          }
+        },
+        "required": ["scope", "query"]
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_recall.output.schema.json",
+        "allOf": [{ "$ref": "recall-response.schema.json" }]
+      }
+    },
+
+    {
+      "name": "memory_remember",
+      "title": "Write to long-term memory",
+      "coala": "internal action: learning",
+      "description": "Write an episodic or semantic record. CoALA's learning action, in its ungated forms.\n\nProcedural memory is deliberately NOT writable here — `type` accepts only episodic and semantic. Procedures go through memory_propose_procedure and a human gate, because CoALA identifies procedural updates as the riskiest learning modality and an agent that can silently rewrite its own how-to is an agent that can silently break itself.\n\nPass `idempotency_key` from any loop. A repeated write with the same key returns the original record and sets `deduped`, so a retried iteration cannot fill memory with near-duplicates.\n\nWriting a semantic fact that conflicts with an existing one does not overwrite it. Both stay active and the conflict is reported in `contradictions_detected`. Silently picking a winner is how a memory store starts lying.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_remember.input.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+          "type": {
+            "description": "Only these two. 'procedural' is rejected with error code PROCEDURAL_WRITE_REQUIRES_PROPOSAL.",
+            "enum": ["episodic", "semantic"]
+          },
+          "content": {
+            "description": "The canonical surface form. This is the only field that gets embedded and keyword-indexed, so everything a future reader needs must appear here — not only in payload or the structured fields.",
+            "type": "string", "minLength": 1, "maxLength": 8192
+          },
+          "payload": { "type": "object" },
+          "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 32 },
+          "importance": { "$ref": "memory-envelope.schema.json#/$defs/unit_interval" },
+          "confidence": { "$ref": "memory-envelope.schema.json#/$defs/unit_interval" },
+          "provenance": { "$ref": "memory-envelope.schema.json#/$defs/provenance" },
+          "expires_at": {
+            "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/timestamp" }, { "type": "null" }]
+          },
+          "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "supersedes": {
+            "description": "Mark an existing record superseded by this one, atomically. Use this rather than forget-then-write: it preserves the chain.",
+            "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/uuid" }, { "type": "null" }]
+          },
+
+          "episodic": {
+            "description": "Required when type is episodic.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+              "cycle_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+              "step_no": { "type": "integer", "minimum": 0 },
+              "goal": { "type": "string", "maxLength": 2048 },
+              "action": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "class": {
+                    "enum": ["reasoning", "retrieval", "learning", "grounding.digital", "grounding.dialogue", "grounding.physical"]
+                  },
+                  "name": { "type": "string", "maxLength": 255 },
+                  "input": { "type": "object" }
+                },
+                "required": ["class", "name"]
+              },
+              "observation": { "type": "string", "maxLength": 8192 },
+              "outcome": { "enum": ["success", "failure", "partial", "abandoned", "unknown"] },
+              "reward": { "oneOf": [{ "type": "number", "minimum": -1, "maximum": 1 }, { "type": "null" }] },
+              "error": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": { "type": "string", "maxLength": 255 },
+                  "message": { "type": "string", "maxLength": 4096 },
+                  "retryable": { "type": "boolean" }
+                },
+                "required": ["kind"]
+              },
+              "duration_ms": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["session_id", "cycle_id", "step_no"]
+          },
+
+          "semantic": {
+            "description": "Optional refinement when type is semantic. Filling subject/predicate/object makes contradiction detection mechanical instead of best-effort, so it is worth doing.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "subject": { "type": "string", "maxLength": 512 },
+              "predicate": { "type": "string", "maxLength": 512 },
+              "object": { "type": "string", "maxLength": 2048 },
+              "valid_from": { "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/timestamp" }, { "type": "null" }] },
+              "valid_to": { "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/timestamp" }, { "type": "null" }] },
+              "volatility": { "enum": ["stable", "slow", "volatile"] },
+              "sensitivity": {
+                "description": "Marking a record pii or secret keeps it out of context blocks by default and makes it findable by a redaction sweep. Mark honestly — an unmarked secret is one nobody can clean up.",
+                "enum": ["none", "pii", "secret"]
+              }
+            },
+            "dependentRequired": { "subject": ["predicate"], "predicate": ["subject"] }
+          }
+        },
+        "required": ["scope", "type", "content"],
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "const": "episodic" } }, "required": ["type"] },
+            "then": { "required": ["episodic"] }
+          }
+        ]
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_remember.output.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "record_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+          "created": {
+            "description": "False when an idempotency key matched and the existing record was returned instead.",
+            "type": "boolean"
+          },
+          "deduped": { "type": "boolean" },
+          "superseded_record_id": {
+            "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/uuid" }, { "type": "null" }]
+          },
+          "contradictions_detected": {
+            "description": "Existing active records this write conflicts with. Reported, never auto-resolved.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "record_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+                "existing_content": { "type": "string" },
+                "basis": { "enum": ["triple", "semantic"] }
+              },
+              "required": ["record_id", "basis"]
+            }
+          },
+          "embedded": {
+            "description": "False when the record was stored but not yet vectorised, e.g. the embedder was unavailable. It is still keyword-recallable and the daemon will embed it later.",
+            "type": "boolean"
+          },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["record_id", "created", "deduped"]
+      }
+    },
+
+    {
+      "name": "memory_forget",
+      "title": "Forget",
+      "coala": "internal action: learning (negative)",
+      "description": "Remove records from recall.\n\nThree modes, escalating. `tombstone` hides a record but keeps it — reversible, and the default. `redact` overwrites content and action inputs in place while keeping the record's shape and provenance, for when something personal was written that should never have been. `hard_delete` destroys bytes, is irreversible, and requires confirm:true.\n\n`max_records` is a required blast-radius guard: state how many records you expect this to touch, and the call aborts without changing anything if the selector matches more. A selector that matches more than the caller expected is a bug, not a large job.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_forget.input.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+          "selector": {
+            "description": "Exactly one selection method.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "record_ids": {
+                "type": "array",
+                "items": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+                "minItems": 1, "maxItems": 1000
+              },
+              "query": {
+                "description": "Semantic selection. Always run with dry_run first — a fuzzy match is a poor basis for deletion.",
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "text": { "type": "string", "minLength": 1 },
+                  "min_similarity": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.8 }
+                },
+                "required": ["text"]
+              },
+              "filter": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "types": { "type": "array", "items": { "enum": ["episodic", "semantic", "procedural"] } },
+                  "tags": { "type": "array", "items": { "type": "string" } },
+                  "session_id": { "type": "string" },
+                  "older_than": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+                  "sensitivity": { "enum": ["none", "pii", "secret"] },
+                  "never_accessed": { "type": "boolean" }
+                },
+                "minProperties": 1
+              }
+            },
+            "minProperties": 1,
+            "maxProperties": 1
+          },
+          "mode": { "enum": ["tombstone", "redact", "hard_delete"], "default": "tombstone" },
+          "reason": {
+            "description": "Required and stored. A forget with no recorded reason is indistinguishable from data loss.",
+            "type": "string", "minLength": 1, "maxLength": 1024
+          },
+          "max_records": {
+            "description": "Abort without changes if the selector matches more than this.",
+            "type": "integer", "minimum": 1, "maximum": 100000
+          },
+          "dry_run": {
+            "description": "Report what would be affected and change nothing.",
+            "type": "boolean", "default": false
+          },
+          "confirm": {
+            "description": "Must be true for hard_delete. Ignored otherwise.",
+            "type": "boolean", "default": false
+          }
+        },
+        "required": ["scope", "selector", "reason", "max_records"],
+        "allOf": [
+          {
+            "if": {
+              "properties": { "mode": { "const": "hard_delete" }, "dry_run": { "const": false } },
+              "required": ["mode"]
+            },
+            "then": { "properties": { "confirm": { "const": true } }, "required": ["confirm"] }
+          }
+        ]
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_forget.output.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": { "enum": ["tombstone", "redact", "hard_delete"] },
+          "dry_run": { "type": "boolean" },
+          "matched_count": { "type": "integer", "minimum": 0 },
+          "affected_count": { "type": "integer", "minimum": 0 },
+          "affected_ids": {
+            "type": "array",
+            "items": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+            "maxItems": 1000
+          },
+          "aborted": { "type": "boolean" },
+          "aborted_reason": {
+            "oneOf": [
+              { "enum": ["exceeds_max_records", "confirm_required", "scope_empty"] },
+              { "type": "null" }
+            ]
+          },
+          "recoverable_until": {
+            "description": "For tombstone mode, when the record becomes eligible for permanent removal. Null for hard_delete — nothing to recover.",
+            "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/timestamp" }, { "type": "null" }]
+          }
+        },
+        "required": ["mode", "dry_run", "matched_count", "affected_count", "aborted"]
+      }
+    },
+
+    {
+      "name": "memory_reflect",
+      "title": "Reflect over memory",
+      "coala": "internal action: reasoning",
+      "description": "Consolidate a window of memory. CoALA's reasoning action, applied to the agent's own store.\n\nFour modes, independently selectable. `consolidate` distils clusters of episodes into semantic facts, keeping provenance back to the originals. `contradictions` finds facts in tension. `promote` spots repeated successful patterns and drafts procedural candidates. `importance` revises importance from observed access and reward.\n\nThis is the same operation the independent daemon runs on a schedule. Calling it directly is how an attached orchestration triggers learning at the end of a run rather than waiting for the next daemon pass.\n\nSemantic writes may be committed directly when `auto_commit` is set. Procedural output is ALWAYS a proposal — auto_commit does not and cannot apply to it.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_reflect.input.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+          "modes": {
+            "type": "array",
+            "items": { "enum": ["consolidate", "contradictions", "promote", "importance"] },
+            "uniqueItems": true,
+            "minItems": 1,
+            "default": ["consolidate", "contradictions"]
+          },
+          "window": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "from": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+              "to": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+              "lookback_days": { "type": "integer", "minimum": 1, "maximum": 3650 },
+              "session_id": {
+                "description": "Reflect over one run only. This is the usual choice for an attached host reflecting at the end of its own work.",
+                "type": "string", "maxLength": 255
+              }
+            }
+          },
+          "auto_commit": {
+            "description": "Commit semantic results directly instead of queuing them for review. Has no effect on procedural results, which are always proposals.",
+            "type": "boolean", "default": false
+          },
+          "max_proposals": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50 },
+          "max_episodes": {
+            "description": "Cap on episodes examined, so a reflect over a large store stays bounded. The response reports whether the cap was hit.",
+            "type": "integer", "minimum": 1, "maximum": 100000, "default": 5000
+          }
+        },
+        "required": ["scope"]
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_reflect.output.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "episodes_examined": { "type": "integer", "minimum": 0 },
+          "capped": {
+            "description": "True when max_episodes cut the window short. A capped reflect has not seen everything and must not be reported as complete.",
+            "type": "boolean"
+          },
+          "semantic_written": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "record_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+                "content": { "type": "string" },
+                "derived_from": {
+                  "type": "array",
+                  "items": { "$ref": "memory-envelope.schema.json#/$defs/uuid" }
+                }
+              },
+              "required": ["record_id", "content", "derived_from"]
+            }
+          },
+          "proposals_created": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "proposal_id": { "type": "string" },
+                "kind": { "enum": ["procedural", "semantic", "forget", "supersede"] },
+                "summary": { "type": "string" },
+                "rationale": { "type": "string" }
+              },
+              "required": ["proposal_id", "kind", "summary"]
+            }
+          },
+          "contradictions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "a": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+                "b": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+                "basis": { "enum": ["triple", "semantic"] },
+                "note": { "type": "string" }
+              },
+              "required": ["a", "b", "basis"]
+            }
+          },
+          "importance_revised": { "type": "integer", "minimum": 0 },
+          "duration_ms": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["episodes_examined", "capped", "semantic_written", "proposals_created", "contradictions"]
+      }
+    },
+
+    {
+      "name": "memory_propose_procedure",
+      "title": "Propose a procedure",
+      "coala": "internal action: learning (gated)",
+      "description": "Queue a candidate procedure for human review. The only way anything reaches procedural memory.\n\nThe result is always state 'pending'. There is no parameter that approves on write, and none will be added: CoALA singles out procedural updates as the riskiest learning modality, and an unattended run that can teach itself a new procedure can also teach itself a wrong one at 3am with nobody watching.\n\nPass `dedupe_key` from any automated caller. Without it, a daemon that keeps noticing the same pattern will keep queuing the same proposal, and the review queue becomes noise nobody reads.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_propose_procedure.input.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+          "content": {
+            "description": "Searchable summary of the procedure. Must restate the trigger, since content is the only embedded and keyword-indexed field.",
+            "type": "string", "minLength": 1, "maxLength": 8192
+          },
+          "trigger": {
+            "description": "When this procedure applies. Matched first at recall time — a procedure retrieved in the wrong situation is worse than no procedure at all.",
+            "type": "string", "minLength": 1, "maxLength": 2048
+          },
+          "preconditions": { "type": "array", "items": { "type": "string", "maxLength": 1024 }, "maxItems": 32 },
+          "steps": {
+            "description": "Natural-language instructions, not code. The host decides how to carry each one out.",
+            "type": "array",
+            "minItems": 1, "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "n": { "type": "integer", "minimum": 1 },
+                "instruction": { "type": "string", "minLength": 1, "maxLength": 2048 },
+                "tool": { "type": "string", "maxLength": 255 },
+                "on_failure": { "type": "string", "maxLength": 1024 }
+              },
+              "required": ["n", "instruction"]
+            }
+          },
+          "success_signal": { "type": "string", "maxLength": 1024 },
+          "failure_signal": { "type": "string", "maxLength": 1024 },
+          "rationale": {
+            "description": "Why this should be learned, with evidence. A reviewer approving on faith is not a gate.",
+            "type": "string", "minLength": 1, "maxLength": 4096
+          },
+          "evidence_record_ids": {
+            "description": "Episodes that motivated the proposal. A reviewer can read them to check the pattern is real.",
+            "type": "array",
+            "items": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+            "maxItems": 256
+          },
+          "proposed_by": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "source": { "enum": ["host", "daemon", "human", "import"], "default": "host" },
+          "dedupe_key": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "supersedes": {
+            "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/uuid" }, { "type": "null" }]
+          }
+        },
+        "required": ["scope", "content", "trigger", "steps", "rationale", "proposed_by"]
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_propose_procedure.output.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "proposal_id": { "type": "string" },
+          "state": {
+            "description": "Always 'pending'. No caller can produce any other value here.",
+            "const": "pending"
+          },
+          "dedupe_hit": {
+            "description": "True when an identical pending proposal already existed; proposal_id points at it and nothing new was created.",
+            "type": "boolean"
+          },
+          "queue_depth": {
+            "description": "Pending proposals now waiting in this scope. A queue that only grows is a sign the gate is being ignored.",
+            "type": "integer", "minimum": 0
+          },
+          "expires_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" }
+        },
+        "required": ["proposal_id", "state", "dedupe_hit"]
+      }
+    },
+
+    {
+      "name": "memory_review_proposals",
+      "title": "Review the proposal queue",
+      "coala": "learning gate",
+      "description": "List, approve, or reject queued proposals. The human gate.\n\n`list` is safe for anyone. `approve` and `reject` require `reviewed_by` and are intended for a person. An unattended daemon must not call approve — policy enforces this with daemon_may_approve:false, and a server that finds itself approving its own proposals has lost the property the gate exists to provide.\n\nApproval materialises the candidate into memory in one transaction. Rejections are kept rather than deleted: a candidate that keeps being re-proposed after rejection says something about the proposer.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_review_proposals.input.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": { "enum": ["list", "approve", "reject"] },
+          "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+          "proposal_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1, "maxItems": 100
+          },
+          "reviewed_by": {
+            "description": "Identifier of the person deciding. Required for approve and reject, and recorded on the resulting record.",
+            "type": "string", "minLength": 1, "maxLength": 255
+          },
+          "note": { "type": "string", "maxLength": 2048 },
+          "state": { "enum": ["pending", "approved", "rejected", "expired"], "default": "pending" },
+          "kind": { "enum": ["procedural", "semantic", "forget", "supersede"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+        },
+        "required": ["action"],
+        "allOf": [
+          {
+            "if": { "properties": { "action": { "enum": ["approve", "reject"] } }, "required": ["action"] },
+            "then": { "required": ["proposal_ids", "reviewed_by"] }
+          }
+        ]
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_review_proposals.output.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": { "enum": ["list", "approve", "reject"] },
+          "proposals": {
+            "description": "Populated for list. Includes the full candidate so a reviewer can judge without a second call.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "proposal_id": { "type": "string" },
+                "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
+                "kind": { "enum": ["procedural", "semantic", "forget", "supersede"] },
+                "state": { "enum": ["pending", "approved", "rejected", "expired"] },
+                "candidate": { "type": "object" },
+                "rationale": { "type": "string" },
+                "evidence_record_ids": {
+                  "type": "array",
+                  "items": { "$ref": "memory-envelope.schema.json#/$defs/uuid" }
+                },
+                "proposed_by": { "type": "string" },
+                "proposed_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
+                "source": { "enum": ["host", "daemon", "human", "import"] }
+              },
+              "required": ["proposal_id", "kind", "state", "candidate", "proposed_by", "proposed_at"]
+            }
+          },
+          "approved": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "proposal_id": { "type": "string" },
+                "record_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" }
+              },
+              "required": ["proposal_id", "record_id"]
+            }
+          },
+          "rejected": { "type": "array", "items": { "type": "string" } },
+          "skipped": {
+            "description": "Proposals that were already decided or had expired. Reported rather than erroring, so a partial batch still succeeds.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "proposal_id": { "type": "string" },
+                "reason": { "enum": ["already_decided", "expired", "not_found"] }
+              },
+              "required": ["proposal_id", "reason"]
+            }
+          },
+          "queue_depth": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["action"]
+      }
+    },
+
+    {
+      "name": "memory_stats",
+      "title": "Memory health",
+      "coala": "introspection",
+      "description": "Counts, coverage, and warning signs. Not part of CoALA, but a memory a host cannot inspect is a memory a host cannot trust.\n\nRead `warnings` before concluding memory is healthy. A queue of pending proposals nobody reviews, procedures that keep failing, cycles that never close, or records that were never embedded all look like normal operation from the outside and all quietly degrade recall.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_stats.input.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "description": "Omit for totals across every scope.",
+            "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/scope" }, { "type": "null" }]
+          },
+          "include_scope_breakdown": { "type": "boolean", "default": false },
+          "include_top_accessed": { "type": "integer", "minimum": 0, "maximum": 50, "default": 0 }
+        }
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory_stats.output.schema.json",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "by_type": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "episodic": { "type": "integer", "minimum": 0 },
+                  "semantic": { "type": "integer", "minimum": 0 },
+                  "procedural": { "type": "integer", "minimum": 0 }
+                }
+              },
+              "by_status": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "active": { "type": "integer", "minimum": 0 },
+                  "superseded": { "type": "integer", "minimum": 0 },
+                  "tombstoned": { "type": "integer", "minimum": 0 },
+                  "redacted": { "type": "integer", "minimum": 0 }
+                }
+              },
+              "total": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "embedding": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": { "type": "string" },
+              "dimensions": { "type": "integer" },
+              "coverage": {
+                "description": "Fraction of active records with a current vector. Below 1.0 means part of the store is keyword-recallable only.",
+                "type": "number", "minimum": 0, "maximum": 1
+              },
+              "pending_reembed": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "queue": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pending_proposals": { "type": "integer", "minimum": 0 },
+              "oldest_pending_at": {
+                "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/timestamp" }, { "type": "null" }]
+              }
+            }
+          },
+          "cycles": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "open": { "type": "integer", "minimum": 0 },
+              "stale": { "type": "integer", "minimum": 0 },
+              "abandoned_last_7d": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "health": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "failing_procedures": { "type": "integer", "minimum": 0 },
+              "unresolved_contradictions": { "type": "integer", "minimum": 0 },
+              "sensitive_records": { "type": "integer", "minimum": 0 },
+              "db_size_bytes": { "type": "integer", "minimum": 0 },
+              "last_daemon_run_at": {
+                "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/timestamp" }, { "type": "null" }]
+              }
+            }
+          },
+          "top_accessed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "record_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
+                "content": { "type": "string" },
+                "access_count": { "type": "integer", "minimum": 0 }
+              },
+              "required": ["record_id", "access_count"]
+            }
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "scope": { "type": "string" },
+                "total": { "type": "integer", "minimum": 0 }
+              },
+              "required": ["scope", "total"]
+            }
+          },
+          "warnings": {
+            "description": "Plain-language health problems, e.g. 'vector extension not loaded; recall is keyword-only' or '41 proposals pending, oldest 62 days'.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["counts", "warnings"]
+      }
+    }
+  ],
+
+  "errors": [
+    { "code": "SCOPE_REQUIRED", "http": 400, "retryable": false, "meaning": "No scope was supplied and the server has no default. Scope is the isolation boundary; there is deliberately no wildcard." },
+    { "code": "PROCEDURAL_WRITE_REQUIRES_PROPOSAL", "http": 400, "retryable": false, "meaning": "memory_remember was called with type 'procedural'. Use memory_propose_procedure." },
+    { "code": "APPROVAL_REQUIRES_HUMAN", "http": 403, "retryable": false, "meaning": "An approve was attempted by a caller identified as the daemon, or with no reviewed_by." },
+    { "code": "IDEMPOTENCY_CONFLICT", "http": 409, "retryable": false, "meaning": "The same idempotency key was reused within a scope with a different payload. The original record is returned unchanged in the error detail." },
+    { "code": "CYCLE_NOT_FOUND", "http": 404, "retryable": false, "meaning": "The cycle_id does not exist or its working set has already expired." },
+    { "code": "CYCLE_ALREADY_CLOSED", "http": 200, "retryable": false, "meaning": "Not an error. close_cycle on a closed cycle is a no-op returning already_closed:true, so a retried loop iteration does not fail." },
+    { "code": "BLAST_RADIUS_EXCEEDED", "http": 400, "retryable": false, "meaning": "A forget selector matched more records than max_records. Nothing was changed." },
+    { "code": "CONFIRM_REQUIRED", "http": 400, "retryable": false, "meaning": "hard_delete without confirm:true. Nothing was changed." },
+    { "code": "WRITE_RATE_EXCEEDED", "http": 429, "retryable": true, "meaning": "A session exceeded max_writes_per_session_per_minute. Almost always a runaway loop that ignored a loop_warning." },
+    { "code": "VECTOR_UNAVAILABLE", "http": 503, "retryable": true, "meaning": "sqlite-vec is not loaded and require_vector_extension is true. When that setting is false this is a degraded-mode flag on the response instead of an error." },
+    { "code": "STORE_BUSY", "http": 503, "retryable": true, "meaning": "SQLite write lock could not be acquired within busy_timeout_ms. Retry with backoff." }
+  ]
+}
