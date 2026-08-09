@@ -70,23 +70,33 @@ def test_nf3_concurrent_readers_and_writers(reviewer):
 
         errors: list[Exception] = []
 
+        # Close in finally, and hold the Store separately from the service. On
+        # the failing path the old code skipped close(), so the connection
+        # stayed open - and because the traceback in `errors` keeps it alive,
+        # TemporaryDirectory could never unlink memory.db. The resulting
+        # PermissionError then replaced this test's real assertion failure,
+        # hiding a genuine concurrency defect behind a teardown error.
         def reader():
+            store = Store(path, dimensions=384)
             try:
-                s = MemoryService(policy, Store(path, dimensions=384), HashingEmbedder(384))
+                s = MemoryService(policy, store, HashingEmbedder(384))
                 for _ in range(10):
                     s.recall(scope=SCOPE, query="seed record")
-                s.close()
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
+            finally:
+                store.close()
 
         def writer(n):
+            store = Store(path, dimensions=384)
             try:
-                s = MemoryService(policy, Store(path, dimensions=384), HashingEmbedder(384))
+                s = MemoryService(policy, store, HashingEmbedder(384))
                 for i in range(10):
                     s.remember(scope=SCOPE, type="semantic", content=f"writer {n} record {i}")
-                s.close()
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
+            finally:
+                store.close()
 
         threads = [threading.Thread(target=reader) for _ in range(8)]
         threads += [threading.Thread(target=writer, args=(n,)) for n in range(2)]

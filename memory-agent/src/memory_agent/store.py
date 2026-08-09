@@ -112,7 +112,13 @@ class Store:
                 return existing[0]["id"], False
 
         rid = new_id()
-        self._q("BEGIN")
+        # IMMEDIATE, not deferred. A deferred BEGIN takes no write lock, so the
+        # first write has to upgrade read->write - and SQLite answers a busy
+        # upgrade with SQLITE_BUSY *without* calling the busy handler, because
+        # waiting on an upgrade can deadlock. busy_timeout is never consulted,
+        # so concurrent writers fail instantly with "database is locked".
+        # IMMEDIATE takes the write lock up front, where busy_timeout applies.
+        self._q("BEGIN IMMEDIATE")
         try:
             self._q(
                 "INSERT INTO records (id,type,scope,content,payload,created_at,updated_at,"
@@ -405,7 +411,13 @@ class Store:
             return 0
         seqs = [r["seq"] for r in self._q(
             f"SELECT seq FROM records WHERE id IN ({','.join('?' * len(ids))})", tuple(ids))]
-        self._q("BEGIN")
+        # IMMEDIATE, not deferred. A deferred BEGIN takes no write lock, so the
+        # first write has to upgrade read->write - and SQLite answers a busy
+        # upgrade with SQLITE_BUSY *without* calling the busy handler, because
+        # waiting on an upgrade can deadlock. busy_timeout is never consulted,
+        # so concurrent writers fail instantly with "database is locked".
+        # IMMEDIATE takes the write lock up front, where busy_timeout applies.
+        self._q("BEGIN IMMEDIATE")
         try:
             if self.vector_ok and seqs:
                 self._q(f"DELETE FROM records_vec WHERE rowid IN ({','.join('?' * len(seqs))})", tuple(seqs))
