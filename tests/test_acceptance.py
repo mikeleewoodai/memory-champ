@@ -647,6 +647,30 @@ def test_f23_unknown_key_is_refused(svc, a_procedure, approve):
     assert result["skipped"][0]["reason"] == "unknown_key"
 
 
+def test_f23_passphrase_protected_key_round_trips():
+    """Pins `bcrypt` as a real dependency rather than an accident of the env.
+
+    `keygen --passphrase` is the recommended setup: the gate assumes an agent
+    holds the tool but not the key, which only holds if the key on disk is
+    encrypted. Both writing and reading an encrypted OpenSSH key use bcrypt's
+    KDF, and `cryptography` does not vendor it - without bcrypt this raises
+    UnsupportedAlgorithm from deep inside serialisation, after the CLI has
+    already prompted for the passphrase twice and then discarded it.
+    """
+    from cryptography.hazmat.primitives import serialization as s
+
+    key = Ed25519PrivateKey.generate()
+    pem = key.private_bytes(s.Encoding.PEM, s.PrivateFormat.OpenSSH,
+                            s.BestAvailableEncryption(b"correct horse battery"))
+    assert b"OPENSSH PRIVATE KEY" in pem
+
+    loaded = A.load_private_key(pem, password=b"correct horse battery")
+    assert A.fingerprint(loaded.public_key()) == A.fingerprint(key.public_key())
+
+    with pytest.raises(ValueError):
+        A.load_private_key(pem, password=b"wrong passphrase")
+
+
 def test_f23_retired_key_verifies_old_but_authorises_nothing_new(svc, a_procedure, approve, reviewer):
     priv, key_id = reviewer
     approved_rid = approve(a_procedure(dedupe_key="first"))[0]["approved"][0]["record_id"]

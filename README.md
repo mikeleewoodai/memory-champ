@@ -23,10 +23,12 @@ Only `cryptography` and `PyYAML` are required. Everything else degrades visibly 
 Approving a learned procedure requires **your** signature. Do this first — the server refuses to start without a reviewer key.
 
 ```bash
-memory-agent keygen ~/.memory-agent/approval --id mike
+memory-agent keygen ~/.memory-agent/approval --id mike --passphrase
 ```
 
 It prints the exact block to paste into `policy.yaml`. An existing SSH key works too; only the public half goes in the config. The private half never reaches the server.
+
+**Use `--passphrase`.** The gate's security claim is that an agent holds the tool but not the key — and that only holds while the key is unreadable to the agent. The usual deployment is an agent with shell access on the same machine as the key, so an unencrypted private key at a predictable path lets it sign its own approvals, which is the exact thing the gate exists to prevent. A passphrase means the key is encrypted at rest and needs you present to use it. `approve` prompts for it when the key turns out to be encrypted.
 
 ## Run it
 

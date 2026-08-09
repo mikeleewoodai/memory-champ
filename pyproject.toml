@@ -15,6 +15,11 @@ requires-python = ">=3.10"
 dependencies = [
     "cryptography>=41",   # Ed25519 approval signatures. Not optional - the gate depends on it.
     "PyYAML>=6",          # policy.yaml
+    # OpenSSH private-key encryption uses bcrypt's KDF and cryptography does not
+    # vendor it. Required to both write and read a passphrase-protected reviewer
+    # key. Not optional: a passphrase is the recommended setup, so leaving this
+    # out makes the secure path the one that breaks.
+    "bcrypt>=4",
 ]
 
 [project.optional-dependencies]

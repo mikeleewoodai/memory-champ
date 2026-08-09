@@ -25,6 +25,25 @@ from .errors import MemoryAgentError
 from .service import MemoryService
 
 
+def _require_bcrypt(what: str) -> None:
+    """OpenSSH private-key encryption uses bcrypt's KDF, and `cryptography` does
+    not vendor it. Without it, both writing and reading a passphrase-protected
+    key raise UnsupportedAlgorithm from deep inside the serialisation code.
+
+    This is a hard stop, never a fallback. The tempting 'degrade gracefully'
+    move - write the key unencrypted and warn - would hand back a private key
+    the user believes is protected, which is worse than no key at all.
+    """
+    try:
+        import bcrypt  # noqa: F401,PLC0415
+    except ImportError:
+        raise SystemExit(
+            f"{what} needs the `bcrypt` package, which is missing.\n"
+            "  pip install bcrypt\n"
+            "It is a declared dependency, so a fresh install has it; seeing this "
+            "means the environment drifted.") from None
+
+
 def _load_key(path: str) -> "A.Ed25519PrivateKey":
     data = Path(path).expanduser().read_bytes()
     try:
@@ -32,6 +51,7 @@ def _load_key(path: str) -> "A.Ed25519PrivateKey":
     except TypeError:
         # Encrypted key: prompt rather than failing. require_passphrase in policy
         # is the setting that makes this the norm.
+        _require_bcrypt("Reading a passphrase-protected key")
         pw = getpass.getpass(f"passphrase for {path}: ").encode()
         return A.load_private_key(data, password=pw)
 
@@ -44,6 +64,10 @@ def cmd_keygen(args) -> int:
     if out.exists() and not args.force:
         print(f"{out} already exists (use --force to overwrite)", file=sys.stderr)
         return 1
+    # Checked before the passphrase prompt, not after. Failing afterwards asks
+    # the user to type a passphrase twice and then throws it away.
+    if args.passphrase:
+        _require_bcrypt("Encrypting a private key")
     out.parent.mkdir(parents=True, exist_ok=True)
 
     priv = Ed25519PrivateKey.generate()
