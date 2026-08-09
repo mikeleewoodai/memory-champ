@@ -93,7 +93,7 @@ class Policy:
         path = path or os.environ.get("MEMORY_AGENT_POLICY")
         if not path or not Path(path).exists():
             return cls()
-        raw = yaml.safe_load(Path(path).read_text()) or {}
+        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
         return cls.from_dict(raw, base_dir=Path(path).parent)
 
     @classmethod

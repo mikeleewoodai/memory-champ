@@ -40,7 +40,7 @@ class Store:
         self.con = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
         self.con.row_factory = sqlite3.Row
         self.con.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
-        self.con.executescript(SCHEMA_PATH.read_text())
+        self.con.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         self.con.execute("PRAGMA foreign_keys = ON")
         self._load_vector(require_vector)
 

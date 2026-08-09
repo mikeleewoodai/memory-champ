@@ -26,7 +26,7 @@ SCOPE = "proj.a"
 def registry_and_tools():
     items = []
     for f in sorted(glob.glob(str(ROOT / "contracts" / "schemas" / "*.json"))):
-        schema = json.load(open(f))
+        schema = json.load(open(f, encoding="utf-8"))
         items.append((schema["$id"], Resource.from_contents(schema)))
     contract = load_contract()
     for tool in contract["tools"]:
@@ -195,7 +195,7 @@ def test_stats_output_conforms(svc, registry_and_tools):
 def test_published_fixture_still_matches_the_implementation():
     """contracts/examples/records.json is the golden test for signing code. If the
     implementation's canonical forms drift, this catches it."""
-    ex = json.load(open(ROOT / "contracts" / "examples" / "records.json"))
+    ex = json.load(open(ROOT / "contracts" / "examples" / "records.json", encoding="utf-8"))
     fixture, sig = ex["approval_signature_fixture"], ex["procedural"]["record"]["approval"]["signature"]
 
     pub = A.load_public_key(fixture["reviewer_public_key_openssh"])

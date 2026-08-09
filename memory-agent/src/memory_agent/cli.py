@@ -59,7 +59,7 @@ def cmd_keygen(args) -> int:
     out.chmod(0o600)
 
     pub_text = A.openssh_public(priv.public_key())
-    Path(f"{out}.pub").write_text(pub_text + "\n")
+    Path(f"{out}.pub").write_text(pub_text + "\n", encoding="utf-8")
     print(f"private key: {out}  (mode 600 — this never goes in policy.yaml)")
     print(f"public key:  {out}.pub\n")
     print("Add to policy.yaml under learning.approval.reviewers:\n")
@@ -71,7 +71,7 @@ def cmd_keygen(args) -> int:
 
 
 def cmd_fingerprint(args) -> int:
-    text = Path(args.path).expanduser().read_text()
+    text = Path(args.path).expanduser().read_text(encoding="utf-8")
     pub = A.load_public_key(text)
     print(A.fingerprint(pub))
     return 0

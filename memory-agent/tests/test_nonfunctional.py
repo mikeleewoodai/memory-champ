@@ -154,7 +154,7 @@ def test_nf6_require_vector_extension_fails_loudly_instead(monkeypatch):
 # ===========================================================================
 def test_nf5_contract_declares_a_closed_world():
     contract = json.loads((Path(__file__).resolve().parents[1] /
-                           "contracts" / "mcp-tools.json").read_text())
+                           "contracts" / "mcp-tools.json").read_text(encoding="utf-8"))
     assert all(t["annotations"]["openWorldHint"] is False for t in contract["tools"])
 
 
@@ -165,7 +165,7 @@ def test_nf5_no_module_imports_a_network_client():
     banned = ("import requests", "import httpx", "import urllib.request",
               "from urllib.request", "import socket", "aiohttp")
     for path in src.glob("*.py"):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         for token in banned:
             assert token not in text, f"{path.name} imports {token}"
 

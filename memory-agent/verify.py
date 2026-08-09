@@ -52,11 +52,11 @@ def load_registry():
 
     items = []
     for f in sorted(glob.glob(p("contracts", "schemas", "*.json"))):
-        schema = json.load(open(f))
+        schema = json.load(open(f, encoding="utf-8"))
         Draft202012Validator.check_schema(schema)
         items.append((schema["$id"], Resource.from_contents(schema)))
 
-    tools = json.load(open(p("contracts", "mcp-tools.json")))
+    tools = json.load(open(p("contracts", "mcp-tools.json"), encoding="utf-8"))
     for tool in tools["tools"]:
         for key in ("inputSchema", "outputSchema"):
             if "$id" in tool[key]:
@@ -117,7 +117,7 @@ FIXTURES = [
 def verify_fixtures(registry, by_name):
     from jsonschema import Draft202012Validator
 
-    ex = json.load(open(p("contracts", "examples", "records.json")))
+    ex = json.load(open(p("contracts", "examples", "records.json"), encoding="utf-8"))
     section("example fixtures validate")
     for name, schema_file, key in FIXTURES:
         errors = list(Draft202012Validator(by_name[schema_file], registry=registry).iter_errors(ex[name][key]))
@@ -170,7 +170,7 @@ UUID_B = "bbbbbbbb-1111-2222-3333-444444444444"
 def verify_ddl():
     section("DDL applies")
     con = sqlite3.connect(":memory:")
-    con.executescript(open(p("contracts", "db", "schema.sql")).read())
+    con.executescript(open(p("contracts", "db", "schema.sql"), encoding="utf-8").read())
     con.execute("PRAGMA foreign_keys=ON")
     objects = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
     for expected in ("records", "episodic_attrs", "semantic_attrs", "procedural_attrs",
@@ -343,9 +343,9 @@ def verify_signature(ex):
 # --------------------------------------------------------------------------
 def verify_docs(tools):
     section("spec and docs")
-    spec = open(p("docs", "memory-agent-coala-spec.md")).read()
-    readme = open(p("README.md")).read()
-    backlog = open(p("BACKLOG.md")).read()
+    spec = open(p("docs", "memory-agent-coala-spec.md"), encoding="utf-8").read()
+    readme = open(p("README.md"), encoding="utf-8").read()
+    backlog = open(p("BACKLOG.md"), encoding="utf-8").read()
 
     functional = re.findall(r"\*\*(F\d+) —", spec)
     non_functional = re.findall(r"\*\*(NF\d+) —", spec)
@@ -378,7 +378,7 @@ def verify_policy():
     import yaml
 
     section("policy defaults match what the acceptance criteria assume")
-    pol = yaml.safe_load(open(p("contracts", "policy.example.yaml")))
+    pol = yaml.safe_load(open(p("contracts", "policy.example.yaml"), encoding="utf-8"))
     approval = pol["learning"]["approval"]
     for name, ok in (
         ("procedural gate is 'proposal'", pol["learning"]["gates"]["procedural"] == "proposal"),

@@ -24,7 +24,7 @@ log = logging.getLogger("memory_agent.server")
 
 
 def load_contract() -> dict:
-    return json.loads(CONTRACT.read_text())
+    return json.loads(CONTRACT.read_text(encoding="utf-8"))
 
 
 def _strip_refs(schema):
