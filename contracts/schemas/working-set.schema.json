@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/working-set.schema.json",
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/working-set.schema.json",
   "title": "Working Set",
   "description": "CoALA working memory for one decision cycle: the goal in play, what was retrieved into it, and what has been observed so far.\n\nThis is deliberately NOT durable knowledge. It is a short-lived scratch buffer that exists so a loop can survive a crash, so a trajectory can be reconstructed, and so runaway loops can be detected. It expires. Anything worth keeping has to be promoted into a long-term record by memory_remember or memory_close_cycle.\n\nThe working set is the memory agent's, not the host's: it does not attempt to own or mirror the host's context window.",
 

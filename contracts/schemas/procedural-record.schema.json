@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/procedural-record.schema.json",
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/procedural-record.schema.json",
   "title": "Procedural Record",
   "description": "CoALA procedural memory: how to do something. Learned routines, playbooks, and heuristics.\n\nDeliberate narrowing of CoALA: the paper's procedural memory includes the agent's own code, and the authors flag rewriting it as the riskiest learning modality. This agent stores procedures as DATA that a host reads and chooses to follow — never as executable code, and never applied to itself. Every procedural write is additionally gated behind human approval before it becomes retrievable.",
 

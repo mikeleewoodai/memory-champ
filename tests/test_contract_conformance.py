@@ -78,7 +78,7 @@ def test_recall_output_conforms(svc, registry_and_tools, a_procedure, approve):
 def test_each_record_type_conforms_to_its_own_schema(svc, registry_and_tools, rtype,
                                                      a_procedure, approve):
     registry, _ = registry_and_tools
-    schema_id = (f"https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/"
+    schema_id = (f"https://mikeleewoodai.github.io/memory-champ/v1/"
                  f"{rtype}-record.schema.json")
     schema = registry.get_or_retrieve(schema_id).value.contents
 

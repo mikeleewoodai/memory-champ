@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/semantic-record.schema.json",
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/semantic-record.schema.json",
   "title": "Semantic Record",
   "description": "CoALA semantic memory: what is true. Facts about the world, the user, and the agent itself — distilled from episodes or asserted directly. Unlike an episode, a semantic record is timeless in form but not in validity: it carries a validity window and can be contradicted or superseded.",
 

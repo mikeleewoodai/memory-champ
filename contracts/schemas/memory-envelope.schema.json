@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/memory-envelope.schema.json",
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory-envelope.schema.json",
   "title": "Memory Envelope",
   "description": "Fields common to every long-term memory record, regardless of CoALA memory module. Episodic, semantic, and procedural records all extend this envelope. Note: $id values are stable identifiers, not fetchable URLs; $refs are relative and resolve against the file layout.",
 

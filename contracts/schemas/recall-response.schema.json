@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mikeleewoodai.github.io/claude-mobile/memory-agent/v1/recall-response.schema.json",
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/recall-response.schema.json",
   "title": "Recall Response",
   "description": "What memory_recall returns.\n\nTwo consumers, one response. `records` is for a host that wants to reason over structure. `context_block` is for a host that just wants text to paste into a prompt — pre-formatted, token-bounded, and never exceeding the caller's max_tokens. The second is what makes this safe to call inside a loop: memory can never quietly eat the host's context window.",
 

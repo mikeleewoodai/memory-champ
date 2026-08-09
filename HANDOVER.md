@@ -8,16 +8,17 @@ Everything needed to pick this up in a local session. Written to be read cold.
 
 | | |
 |---|---|
-| Repo | `mikeleewoodai/claude-mobile` |
-| Branch | `claude/memory-agent-coala-specs-2g3s4q` |
-| Project | `memory-agent/` |
+| Repo | `mikeleewoodai/memory-champ` |
+| Branch | `main` |
+| Project | repo root |
 | PR | none opened |
 
 ```bash
-git clone https://github.com/mikeleewoodai/claude-mobile.git
-cd claude-mobile
-git checkout claude/memory-agent-coala-specs-2g3s4q
+git clone https://github.com/mikeleewoodai/memory-champ.git
+cd memory-champ
 ```
+
+Originally drafted in `mikeleewoodai/claude-mobile` under `memory-agent/`, which is a scratch repo for work started from a phone. The full history came across, so early commits show that layout. Nothing lives there any more.
 
 ## What it is
 
@@ -30,7 +31,6 @@ Spec + machine-readable contracts + working implementation. `verify.py` and the 
 ## Prove it works before you change anything
 
 ```bash
-cd memory-agent
 pip install -e ".[all,dev]"  # or ".[vector,server,tokenizer,dev]" to skip torch
 python verify.py             # contract checks: schemas, DDL invariants, the published signature
 pytest -q                    # one test per acceptance criterion, plus conformance and NF suites
@@ -70,11 +70,11 @@ memory-agent stats --scope acme.crm
 
 ## Read in this order
 
-1. `memory-agent/README.md` — orientation, install, module map
-2. `memory-agent/docs/memory-agent-coala-spec.md` §1–3 — what it is, quick start, the CoALA mapping
+1. `README.md` — orientation, install, module map
+2. `docs/memory-agent-coala-spec.md` §1–3 — what it is, quick start, the CoALA mapping
 3. §8 — the action contract and **signed approvals**
 4. §13 — the decision log. Every non-obvious choice with the tension behind it
-5. `memory-agent/BACKLOG.md` — B-1, the one thing blocking a work version
+5. `BACKLOG.md` — B-1, the one thing blocking a work version
 
 ## The six things most likely to trip you up
 
@@ -105,7 +105,7 @@ Full reasoning in spec §13. The headlines:
 
 ## Open work
 
-**B-1 — caller authentication. Blocks a work version.** Reviewer identity is done; *who is calling* is not. Any orchestration reaching the server can read and write any scope it can name, and `memory_remember` writes are unattributed. Fine for one person on one machine over stdio, where anything that could reach the server could already open `memory.db` directly. Not fine the moment there is a second person, a second machine, a network transport, or client data. Full work item with definition of done in `memory-agent/BACKLOG.md`.
+**B-1 — caller authentication. Blocks a work version.** Reviewer identity is done; *who is calling* is not. Any orchestration reaching the server can read and write any scope it can name, and `memory_remember` writes are unattributed. Fine for one person on one machine over stdio, where anything that could reach the server could already open `memory.db` directly. Not fine the moment there is a second person, a second machine, a network transport, or client data. Full work item with definition of done in `BACKLOG.md`.
 
 One note carried there: **don't fold reviewer identity back into caller identity** once principals exist. A session credential proves who is connected *now*; a signature proves who decided *then*, and survives the session, the server, and the database.
 
