@@ -31,7 +31,7 @@ Spec + machine-readable contracts + working implementation. `verify.py` and the 
 
 ```bash
 cd memory-agent
-pip install -e ".[all]"      # or ".[vector,server,dev]" to skip torch
+pip install -e ".[all,dev]"  # or ".[vector,server,tokenizer,dev]" to skip torch
 python verify.py             # contract checks: schemas, DDL invariants, the published signature
 pytest -q                    # one test per acceptance criterion, plus conformance and NF suites
 pytest -q -m slow            # + recall latency benchmark
@@ -39,7 +39,7 @@ pytest -q -m slow            # + recall latency benchmark
 
 If `verify.py` passes, the contracts are intact. If `pytest` passes, every acceptance criterion in spec §10 holds. Both should be green on a fresh clone.
 
-Only `cryptography` and `PyYAML` are hard requirements. `sqlite-vec`, `sentence-transformers`, `tiktoken`, and `mcp` are optional and each degrades visibly rather than failing.
+Only `cryptography` and `PyYAML` are hard requirements. `sqlite-vec`, `sentence-transformers`, `tiktoken`, and `mcp` are optional and each degrades visibly rather than failing. `dev` is not optional for the commands above, though — it is what supplies `pytest` and `jsonschema`, and `[all]` does not include it.
 
 ## Run it
 
@@ -76,17 +76,21 @@ memory-agent stats --scope acme.crm
 4. §13 — the decision log. Every non-obvious choice with the tension behind it
 5. `memory-agent/BACKLOG.md` — B-1, the one thing blocking a work version
 
-## The five things most likely to trip you up
+## The six things most likely to trip you up
 
 1. **`content` is the only indexed field.** Nothing else is embedded or keyword-searchable. Writer-side invariant: whatever a future reader needs must appear in `content`, even if it also lives in a structured field. A procedure whose trigger is only in `procedural_attrs.trigger_text` will not be found.
 
-2. **The signed payload is fixed-field text, not JSON, and is stored verbatim.** Canonical JSON is a footgun — key order, unicode escaping, number formatting. Verification uses the stored bytes, never a payload rebuilt from current field values; rebuilding would prove only that a row is self-consistent with itself. `contracts/examples/records.json` carries a real signature and its public key — it is the golden test. If your verifier cannot check it, your canonical form has drifted and it will reject genuine approvals.
+2. **The signed payload is fixed-field text, not JSON, and is stored verbatim.** Canonical JSON is a footgun — key order, unicode escaping, number formatting. Verification uses the stored bytes, never a payload rebuilt from current field values; rebuilding would prove only that a row is self-consistent with itself. `contracts/examples/records.json` carries a real signature and its public key — it is the golden test.
+
+   If it fails, suspect **how you read the file** before you suspect the canonical form. `records.json` is UTF-8 and carries non-ASCII, so reading it with the platform default — cp1252 on Windows — mangles a character in `steps` and changes the hash. That looks exactly like drift, and acting on it means editing `candidate_hash()` until the hashes agree, which would break every genuine approval. Every text read in the codebase passes `encoding="utf-8"` for this reason; don't drop it. Only with the bytes known good does a mismatch mean your canonical form has drifted — and then it will reject genuine approvals.
 
 3. **`candidate_sha256` covers a specific field subset** — `trigger`, `preconditions`, `steps`, `success_signal`, `failure_signal` — serialised with sorted keys, no whitespace, `ensure_ascii=False`. Envelope fields the server assigns are excluded, because the reviewer signs before the record exists. `approval.candidate_hash()` is the one implementation.
 
 4. **Constraints in the DDL are load-bearing; never work around one.** Signature columns are `NOT NULL` so an unsigned approved procedure is unrepresentable. Supersession has a CHECK so the half-applied case cannot exist. Unapproved candidates live in `proposals`, a separate table, so a buggy query cannot leak one into recall. A constraint firing means the caller is wrong.
 
 5. **The MCP SDK is moving.** `server.py` supports both 1.x (decorators) and 2.x (`add_request_handler`, snake_case `input_schema`/`open_world_hint`). Tool schemas come from `contracts/mcp-tools.json`, not from Python signatures — keep it that way, or the contract stops being the source of truth.
+
+6. **Writes open with `BEGIN IMMEDIATE`, and that is load-bearing.** A deferred `BEGIN` takes no write lock, so the first write has to upgrade read→write — and SQLite answers a contended upgrade with `SQLITE_BUSY` *without* invoking the busy handler, because blocking there can deadlock. `busy_timeout` is then never consulted and a second writer fails instantly with `database is locked`, rather than waiting its turn. The daemon plus an attached host is two writers on one `memory.db`, so this is the ordinary case, not an edge one. Don't change it back to a bare `BEGIN`.
 
 ## Decisions already made — don't re-litigate without reason
 

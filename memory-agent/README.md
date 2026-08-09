@@ -11,8 +11,10 @@ It has no grounding actions. It never reaches the network, never touches the fil
 ## Install
 
 ```bash
-pip install -e ".[all]"      # or: pip install -e ".[vector,server,dev]" to skip torch
+pip install -e ".[all,dev]"      # or: pip install -e ".[vector,server,tokenizer,dev]" to skip torch
 ```
+
+`dev` is what brings in `pytest` and `jsonschema`. `[all]` on its own does not, so include it or the `pytest -q` below has nothing to run.
 
 Only `cryptography` and `PyYAML` are required. Everything else degrades visibly rather than failing: no `sqlite-vec` means keyword-only recall that says so, no `sentence-transformers` means the built-in hashing embedder, no `tiktoken` means a conservative token bound.
 
@@ -101,7 +103,11 @@ pytest -q                 # one test per acceptance criterion, plus conformance 
 pytest -q -m slow         # + the recall latency benchmark
 ```
 
-`verify.py` checks the published approval signature in `contracts/examples/records.json` — it is real and reproducible, and it is the golden test for signing code. If your verifier cannot check it, your canonical payload or candidate hashing disagrees with the contract and it will reject genuine approvals.
+`verify.py` checks the published approval signature in `contracts/examples/records.json` — it is real and reproducible, and it is the golden test for signing code.
+
+If it fails, suspect **how the file was read** before you touch the canonical form. `records.json` is UTF-8 and contains non-ASCII, so reading it with the platform default encoding — cp1252 on Windows — mangles a character inside `steps` and changes the hash. That is indistinguishable from canonical-form drift and invites the one repair you must not make: editing `candidate_hash()` until the hashes agree would break every genuine approval. Every text read in this codebase passes `encoding="utf-8"` for exactly this reason; don't drop it.
+
+Only once the bytes are known good does a mismatch mean your canonical payload or candidate hashing disagrees with the contract — and then it will reject genuine approvals.
 
 ## Design commitments
 
