@@ -65,7 +65,13 @@ class SentenceTransformerEmbedder:
 
         self._model = SentenceTransformer(model)
         self.name = model
-        self.dimensions = int(self._model.get_sentence_embedding_dimension())
+        # sentence-transformers 5.x renamed get_sentence_embedding_dimension to
+        # get_embedding_dimension and warns on the old name. Accept either rather
+        # than pinning a version: the dimension has to match the vec0 declaration,
+        # so this failing is not a warning, it is a store that will not open.
+        get_dim = (getattr(self._model, "get_embedding_dimension", None)
+                   or self._model.get_sentence_embedding_dimension)
+        self.dimensions = int(get_dim())
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [list(map(float, v)) for v in self._model.encode(texts, normalize_embeddings=True)]

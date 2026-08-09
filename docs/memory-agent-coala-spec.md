@@ -646,6 +646,10 @@ Originally: no authentication anywhere, and `reviewed_by` a self-asserted string
 **A-4 — Local 384-dimension embeddings give good enough recall.**
 *If wrong:* swap the embedder for a stronger hosted model. Costs a re-embed pass, which the daemon already supports, plus a data-egress decision since memory content would leave the machine.
 
+*Measured 2026-08-09* by `eval_recall.py`, 30 records, 18 queries, `all-MiniLM-L6-v2`. On paraphrased queries — the realistic case, since an agent asks in its own words rather than the words a fact was stored in — local embeddings beat both the keyword floor and the hashing fallback: MRR 0.34 keyword, 0.43 hashing, 0.55 sentence-transformers, and R@5 40% / 50% / 80%. On the lexical control set all three tie at 100%, which is the expected result and a check that the eval is not simply rewarding embeddings everywhere. Per query, sentence-transformers beat hashing on 5, tied on 4, lost narrowly on 1. Cost is a median 1.8ms → 10.4ms recall.
+
+Read that as directional, not settled. Ten paraphrase queries means one query moves R@1 by ten points, the corpus is two orders of magnitude smaller than a real store, and the gold labels are hand-written. The claim it supports is the weaker one: **the hashing fallback is materially worse than a real embedder on paraphrased queries, and is close to no embedder at all** (0.34 → 0.43 MRR). What it does not establish is that 384 dimensions are sufficient at scale. One query — a dormant-account lookup phrased as "a login nobody has touched in months" — is missed by all three arms, so embeddings are not a general answer to vocabulary mismatch.
+
 **A-5 — Hosts will actually pass `idempotency_key` and check `loop_warning`.**
 The loop-safety properties are cooperative: the server cannot force a host to use them.
 *If wrong:* near-duplicates accumulate and runaway loops are caught only by the write-rate limiter, which is a blunt backstop. Mitigation is documentation and the rate limit; a stricter design would reject unkeyed writes inside an open cycle, which is worth revisiting in v2.

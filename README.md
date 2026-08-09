@@ -101,7 +101,10 @@ Approving is also callable over MCP — the signature, not the caller, is what t
 python verify.py          # contract checks: schemas, DDL invariants, the published signature
 pytest -q                 # one test per acceptance criterion, plus conformance and NF suites
 pytest -q -m slow         # + the recall latency benchmark
+python eval_recall.py     # recall *quality* - does it find the right memory? (A-4)
 ```
+
+`verify.py` and `pytest` answer "is it correct". `eval_recall.py` answers the separate question of whether recall is any good, which nothing else here measures: it scores keyword-only, the hashing fallback, and sentence-transformers over one corpus, and splits queries into a lexical control set and a paraphrase set. Only the paraphrase set discriminates — an embedding that helps when the words already match has proved nothing. Read its docstring before quoting a number from it; the corpus and gold labels are hand-written, and a single query moves R@1 by ten points.
 
 `verify.py` checks the published approval signature in `contracts/examples/records.json` — it is real and reproducible, and it is the golden test for signing code.
 

@@ -134,7 +134,7 @@ Container-specific; they may not apply locally, but they cost time here.
 
 Reasonable next moves, roughly in order of value:
 
-1. Swap in `sentence-transformers` and see whether recall quality justifies A-4.
+1. ~~Swap in `sentence-transformers` and see whether recall quality justifies A-4.~~ Done 2026-08-09. `python eval_recall.py` measures it: on paraphrased queries MRR goes 0.34 keyword → 0.43 hashing → 0.55 sentence-transformers, and the lexical control ties at 100% across all three. Use `provider: "sentence-transformers"` for real work and keep `"hashing"` for tests and CI, which is what the suite already pins. See A-4 in spec §12 for the caveats, which matter.
 2. Improve reflection clustering (embedding-based rather than by-cycle), still queueing rather than committing.
 3. Run the agent against a real orchestration for a week, then read `memory-agent stats` and the review queue. The queue depth tells you whether the gate is workable in practice.
 4. B-1, when a work version comes up.
