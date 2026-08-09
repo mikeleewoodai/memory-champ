@@ -2,13 +2,13 @@
   "description": "One valid example per record type, plus a recall response. These are fixtures: every one validates against its schema, so a builder can use them as golden inputs and a test suite can assert against them. They trace a single realistic story — an agent gets an invoice format wrong, records the failure, learns the fact, and proposes a procedure that a human then approves.",
 
   "approval_signature_fixture": {
-    "note": "The signature on the procedural record below is REAL and verifiable, not a placeholder — it is the golden test for an implementation's signing code. If your verifier cannot check it, your canonical payload or your candidate hashing disagrees with the contract, and it will reject the reviewer's genuine approvals.",
+    "note": "The signature on the procedural record below is REAL and verifiable, not a placeholder — it is the golden test for an implementation's signing code. If your verifier cannot check it, first check that you read this file as UTF-8: the platform default is cp1252 on Windows, which mangles a character in `steps` and changes the hash in a way indistinguishable from canonical-form drift. Only once the bytes are known good does a mismatch mean your canonical payload or your candidate hashing disagrees with the contract, and it will reject the reviewer's genuine approvals.",
     "reviewer_public_key_openssh": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE6dIvnCwiloFDwWd2+KFPuhciEE3LmAzRu+mx6X8jr1",
     "reviewer_public_key_base64": "Tp0i+cLCKWgUPBZ3b4oU+6FyIQTcuYDNG76bHpfyOvU=",
     "key_id": "SHA256:TnVMZBBjjo6gM3jL6IP6/lKTrWBfZe6kcS6l1OPyjXY",
     "private_key_seed": "Throwaway, published on purpose. seed = sha256(b'memory-agent example reviewer key -- DO NOT USE'), loaded with Ed25519PrivateKey.from_private_bytes(seed). Never use this key for anything real.",
-    "candidate_hashed": "The `trigger`, `preconditions`, `steps`, `success_signal`, and `failure_signal` of the procedural record below — the proposal's candidate object, without envelope fields the server assigns.",
-    "verify": "python -c \"import json,base64,hashlib;from cryptography.hazmat.primitives.serialization import load_ssh_public_key as L;e=json.load(open('contracts/examples/records.json'));f=e['approval_signature_fixture'];s=e['procedural']['record']['approval']['signature'];L(f['reviewer_public_key_openssh'].encode()).verify(base64.b64decode(s['sig']),s['signed_payload'].encode());c=e['procedural']['record'];cand={k:c[k] for k in ('trigger','preconditions','steps','success_signal','failure_signal')};assert hashlib.sha256(json.dumps(cand,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()==s['candidate_sha256'];print('approval signature verifies and the candidate hash matches')\""
+    "candidate_hashed": "The `content`, `trigger`, `preconditions`, `steps`, `success_signal`, and `failure_signal` of the procedural record below — the proposal's candidate object, without envelope fields the server assigns. `content` is covered deliberately: it is the only indexed field, it is what recall returns, and it is therefore the text an agent actually follows. A signature that left it out would let an approved procedure's instructions be rewritten without breaking the signature, which is the one thing the gate exists to prevent.",
+    "verify": "python -c \"import json,base64,hashlib;from cryptography.hazmat.primitives.serialization import load_ssh_public_key as L;e=json.load(open('contracts/examples/records.json',encoding='utf-8'));f=e['approval_signature_fixture'];s=e['procedural']['record']['approval']['signature'];L(f['reviewer_public_key_openssh'].encode()).verify(base64.b64decode(s['sig']),s['signed_payload'].encode());c=e['procedural']['record'];cand={k:c[k] for k in ('content','trigger','preconditions','steps','success_signal','failure_signal')};assert hashlib.sha256(json.dumps(cand,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()==s['candidate_sha256'];print('approval signature verifies and the candidate hash matches')\""
   },
 
   "episodic": {
@@ -138,9 +138,9 @@
         "signature": {
           "alg": "ed25519",
           "key_id": "SHA256:TnVMZBBjjo6gM3jL6IP6/lKTrWBfZe6kcS6l1OPyjXY",
-          "signed_payload": "memory-agent-approval-v1\nscope: acme.crm\nproposal: p_01J9X2QK7M\ncandidate_sha256: 2a837b39889700ab891a10f379cd9d1cb7277600f9236100489026d1dbe3f22c\ndecision: approve\nreviewer: mike\nnonce: 3f9a1c77b204e8d6\nexpires: 2026-04-02T10:39:00Z\n",
-          "sig": "7CqAptUDaBrk1xTwAFLjD77oFhXoqRwVA/kaPceu2+Yihn0M2rOUXdKu4L1VilGvOt4MO3H2DdlLiyqAAwn9AA==",
-          "candidate_sha256": "2a837b39889700ab891a10f379cd9d1cb7277600f9236100489026d1dbe3f22c",
+          "signed_payload": "memory-agent-approval-v2\nscope: acme.crm\nproposal: p_01J9X2QK7M\ncandidate_sha256: 30fbda94b5507038a9e4314798d82789581b479ea12fee5997944ba28b2814eb\ndecision: approve\nreviewer: mike\nnonce: 3f9a1c77b204e8d6\nexpires: 2026-04-02T10:39:00Z\n",
+          "sig": "tS5i6+MwpDUlxppPEvJxZ1qsYUfQhRvgp/SCdUURcuVOLpChneY3U4/bzQBrGVevtLXacuQyzNddQV0TUHCgDQ==",
+          "candidate_sha256": "30fbda94b5507038a9e4314798d82789581b479ea12fee5997944ba28b2814eb",
           "verified_at": "2026-04-30T03:00:00Z"
         }
       },
@@ -234,9 +234,9 @@
               "signature": {
                 "alg": "ed25519",
                 "key_id": "SHA256:u4QPsjQqHDd8DkgXdjbLID3ki8L+ccd5Iysf98C6GUg",
-                "signed_payload": "memory-agent-approval-v1\nscope: acme.crm\nproposal: p_01J9X2QK7M\ncandidate_sha256: a3ffa5d41436002586ad2172945f1d3c3affbc904920ced55298dac13c3ca44a\ndecision: approve\nreviewer: mike\nnonce: 3f9a1c77b204e8d6\nexpires: 2026-04-02T10:39:00Z\n",
-                "sig": "S4XS0ww9bz6Xmn5MxAa3HAsjoeUSuK0QApMF6vYFaL3GdQpTKpKvZmYcQnJxXsBvHhLpWnRtEyDgMfUiOaKbCw==",
-                "candidate_sha256": "a3ffa5d41436002586ad2172945f1d3c3affbc904920ced55298dac13c3ca44a"
+                "signed_payload": "memory-agent-approval-v2\nscope: acme.crm\nproposal: p_01J9X2QK7M\ncandidate_sha256: bb46d3d9307d09407b9576cd70e10ea3f6ac33b0e771dd7338702583f56a3877\ndecision: approve\nreviewer: mike\nnonce: 3f9a1c77b204e8d6\nexpires: 2026-04-02T10:39:00Z\n",
+                "sig": "JOzsOu7uYit+TzLu5t29ooTT2pDNE6YhPTWY+S/TXHhi18rhCvA6NKSdRx7JeEW6if+ym1Lq6oP0j4awPDxNCA==",
+                "candidate_sha256": "bb46d3d9307d09407b9576cd70e10ea3f6ac33b0e771dd7338702583f56a3877"
               }
             }
           },

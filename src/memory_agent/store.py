@@ -495,8 +495,14 @@ class Store:
         return [dict(r) for r in self._q(sql, args)]
 
     def procedure_candidate(self, record_id: str) -> dict:
-        row = self._q("SELECT * FROM procedural_attrs WHERE record_id=?", (record_id,))[0]
+        # Joins records for `content`, which lives there rather than in
+        # procedural_attrs. Without the join this could not reconstruct content,
+        # which is why it used to be absent from the signed candidate entirely.
+        row = self._q(
+            "SELECT pa.*, r.content AS content FROM procedural_attrs pa "
+            "JOIN records r ON r.id = pa.record_id WHERE pa.record_id=?", (record_id,))[0]
         return {
+            "content": row["content"],
             "trigger": row["trigger_text"],
             "preconditions": json.loads(row["preconditions"] or "[]"),
             "steps": json.loads(row["steps"]),

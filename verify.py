@@ -278,7 +278,10 @@ def verify_ddl():
 # --------------------------------------------------------------------------
 # the published approval signature
 # --------------------------------------------------------------------------
-CANDIDATE_FIELDS = ("trigger", "preconditions", "steps", "success_signal", "failure_signal")
+# Deliberately re-declared here rather than imported. This file is the
+# independent check on the implementation; importing its constants would make
+# the two agree by construction and prove nothing.
+CANDIDATE_FIELDS = ("content", "trigger", "preconditions", "steps", "success_signal", "failure_signal")
 
 
 def canonical(candidate: dict) -> bytes:
@@ -316,7 +319,7 @@ def verify_signature(ex):
           f"candidate_sha256: {sig['candidate_sha256']}" in sig["signed_payload"])
 
     fields = dict(re.findall(r"^([a-z0-9_]+): (.*)$", sig["signed_payload"], re.M))
-    check("payload is versioned", sig["signed_payload"].startswith("memory-agent-approval-v1\n"))
+    check("payload is versioned", sig["signed_payload"].startswith("memory-agent-approval-v2\n"))
     check("payload carries every binding field",
           set(fields) == {"scope", "proposal", "candidate_sha256", "decision", "reviewer", "nonce", "expires"},
           str(sorted(fields)))

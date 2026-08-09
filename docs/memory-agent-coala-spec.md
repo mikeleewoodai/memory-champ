@@ -394,10 +394,10 @@ Two calls:
 The payload is fixed-field and newline-delimited, never JSON — canonical JSON is a footgun (key order, unicode escaping, number formatting), and a verifier that re-serialises can disagree with the signer:
 
 ```
-memory-agent-approval-v1
+memory-agent-approval-v2
 scope: acme.crm
 proposal: p_01J9X2QK7M
-candidate_sha256: a3ffa5d4...c3ca44a
+candidate_sha256: bb46d3d9...307d0940
 decision: approve
 reviewer: mike
 nonce: 3f9a1c77b204e8d6
@@ -410,7 +410,7 @@ What each field buys:
 
 | Field | Attack it closes |
 |---|---|
-| `candidate_sha256` | Approving a benign procedure, then editing it before it lands. The signature covers the exact content shown |
+| `candidate_sha256` | Approving a benign procedure, then editing it before it lands. Covers `content`, `trigger`, `preconditions`, `steps`, `success_signal`, `failure_signal` — including `content`, which is the text recall returns and an agent follows, so the signature covers the exact instructions shown |
 | `nonce` (single-use, 10 min) | Stockpiling pre-signed approvals, or replaying an old one |
 | `proposal` + `scope` | Reusing a signature from one proposal against another |
 | `decision` | Turning a signed rejection into an approval |

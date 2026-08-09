@@ -41,13 +41,22 @@ from .errors import (
     ApprovalSignatureInvalid,
 )
 
-PAYLOAD_VERSION = "memory-agent-approval-v1"
+# v2 because candidate_sha256 changed meaning: it now covers `content`. A v1
+# signature and a v2 signature over the same candidate are different hashes, so
+# refusing v1 outright is honest - the alternative is a v1 approval failing its
+# hash check and being reported as tampering it never committed.
+PAYLOAD_VERSION = "memory-agent-approval-v2"
 PAYLOAD_FIELDS = ("scope", "proposal", "candidate_sha256", "decision", "reviewer", "nonce", "expires")
 
 # Fields of a proposal candidate covered by candidate_sha256. Envelope fields the
 # server assigns are excluded - including them would make the hash unreproducible
 # by the reviewer, who signs before the record exists.
-CANDIDATE_FIELDS = ("trigger", "preconditions", "steps", "success_signal", "failure_signal")
+#
+# `content` is covered, and must stay covered. It is the only indexed field, it is
+# what recall returns, and it is therefore the text an agent actually follows.
+# Leaving it out meant an approved procedure's instructions could be rewritten
+# without invalidating the signature, which defeats the point of signing.
+CANDIDATE_FIELDS = ("content", "trigger", "preconditions", "steps", "success_signal", "failure_signal")
 
 
 def utcnow() -> datetime:

@@ -67,3 +67,27 @@ Two properties of this specific design raise the stakes:
 - The daemon's principal is refused on approve, verified end-to-end rather than by reading the config, and independently of the signature check
 - Signed approvals still verify unchanged — adding caller auth must not alter or weaken F18–F23
 - New acceptance criteria added to spec §10 alongside F1–F23 / NF1–NF10, and A-3 fully closed
+
+---
+
+## B-2 — `supersedes` and `evidence_record_ids` are outside the signature
+
+**Status:** open · **Raised:** 2026-08-09 · **Blocks:** nothing today; fold into the next breaking signature change
+**Related:** `approval.CANDIDATE_FIELDS`, `store.procedure_candidate`, spec §8
+
+`candidate_sha256` now covers `content`, `trigger`, `preconditions`, `steps`, `success_signal` and `failure_signal`. Two fields the reviewer is shown are still outside it.
+
+**`supersedes`** is the more interesting of the two. It says which procedure this one replaces, so altering it after approval retargets a signed supersession at a different procedure — retiring something the reviewer never agreed to retire. The value is already stored in `procedural_attrs`, so `procedure_candidate` can reconstruct it today; this is a small change.
+
+**`evidence_record_ids`** is the records the proposal was justified by. There is no column for it, so it cannot be reconstructed at verification time at all. Covering it needs a DDL change first, and the DDL is where this class of bug hides: a field with nowhere to be reconstructed from is a field the signature quietly stops covering.
+
+### Why it was not done at the same time as `content`
+
+`content` was a live hole — the text an agent follows could be rewritten under a valid signature. These two are narrower, and each addition invalidates every existing signature. Doing them separately would mean two `PAYLOAD_VERSION` bumps and two fixture regenerations for no gain, so they should land together, in whatever breaking change comes next.
+
+### Definition of done
+
+- `CANDIDATE_FIELDS` covers `supersedes`, and `evidence_record_ids` if the DDL gains a column for it
+- `store.procedure_candidate()` reconstructs every covered field — verified by a test that fails if a covered field is missing from the reconstruction, rather than by reading the code
+- `PAYLOAD_VERSION` bumped, `regenerate_fixture.py` re-run, schema and spec updated
+- A test proves mutating each covered field breaks verification, so the next omission is caught by the suite rather than by hand

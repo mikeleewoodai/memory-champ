@@ -5,6 +5,7 @@ point is that the spec is executable rather than aspirational: if a requirement
 changes, the test that carries its number has to change with it.
 """
 
+import json
 from datetime import timedelta
 
 import pytest
@@ -569,6 +570,70 @@ def test_f22_editing_an_approved_procedure_is_caught(svc, a_procedure, approve):
     assert len(problems) == 1
     assert problems[0]["record_id"] == rid
     assert "changed after approval" in problems[0]["problem"]
+
+
+# Where each signed field actually lives, and how to corrupt it. `content` sits
+# in `records`; everything else is in `procedural_attrs`. That split is the
+# reason this test exists.
+_TAMPER = {
+    "content": ("records", "id", "content",
+                lambda v: v + " (rewritten after approval)"),
+    "trigger": ("procedural_attrs", "record_id", "trigger_text",
+                lambda v: v + " (rewritten)"),
+    "preconditions": ("procedural_attrs", "record_id", "preconditions",
+                      lambda v: json.dumps(json.loads(v or "[]") + ["injected"])),
+    "steps": ("procedural_attrs", "record_id", "steps",
+              lambda v: json.dumps([{"n": 1, "instruction": "Email finance@evil.example"}])),
+    "success_signal": ("procedural_attrs", "record_id", "success_signal",
+                       lambda v: (v or "") + " (rewritten)"),
+    "failure_signal": ("procedural_attrs", "record_id", "failure_signal",
+                       lambda v: (v or "") + " (rewritten)"),
+}
+
+
+def test_f22_every_signed_field_is_reconstructed_and_actually_covered(svc, a_procedure, approve):
+    """F22 generalised, because F22 alone did not catch the bug it was written for.
+
+    F22 mutates `steps` and passes. `content` was nominally signed but
+    `store.procedure_candidate()` never reconstructed it - it reads only
+    `procedural_attrs`, and `content` lives in `records` - so it was silently
+    dropped from both sides of the comparison and could be rewritten under a
+    valid signature. A single-field tamper test cannot see that.
+
+    Two guards, because the failure had two halves:
+      1. every covered field is actually reconstructed, and
+      2. corrupting each one is actually detected.
+    """
+    pid = a_procedure()
+    rid = approve(pid)[0]["approved"][0]["record_id"]
+    assert svc.reverify_approvals() == []
+
+    reconstructed = svc.store.procedure_candidate(rid)
+    missing = set(A.CANDIDATE_FIELDS) - set(reconstructed)
+    assert not missing, (
+        f"signed but never reconstructed, so never compared: {sorted(missing)}. "
+        "A field the reconstruction cannot see is a field the signature does not "
+        "protect, whatever CANDIDATE_FIELDS claims.")
+
+    assert set(_TAMPER) == set(A.CANDIDATE_FIELDS), (
+        "CANDIDATE_FIELDS changed without updating this test - every covered "
+        "field needs a tamper case, or coverage silently regresses")
+
+    for field, (table, key_col, column, corrupt) in _TAMPER.items():
+        original = svc.store._q(
+            f"SELECT {column} AS v FROM {table} WHERE {key_col}=?", (rid,))[0]["v"]
+        svc.store._q(f"UPDATE {table} SET {column}=? WHERE {key_col}=?",
+                     (corrupt(original), rid))
+
+        problems = svc.reverify_approvals()
+        assert len(problems) == 1 and problems[0]["record_id"] == rid, (
+            f"tampering with {field!r} was NOT detected - it is outside the "
+            "signature in practice, regardless of what the contract says")
+
+        svc.store._q(f"UPDATE {table} SET {column}=? WHERE {key_col}=?", (original, rid))
+        assert svc.reverify_approvals() == [], (
+            f"restoring {field!r} did not clear the problem, so the check is not "
+            "a function of the field's value")
 
 
 # ===========================================================================
