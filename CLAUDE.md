@@ -6,7 +6,7 @@ Projects folder for work started from my phone. Each subdirectory is a separate 
 
 | Path | What it is | Status |
 |---|---|---|
-| `memory-agent/` | CoALA-based memory service for agent orchestrations. MCP interface, SQLite + sqlite-vec storage, Python target. | Specification + contracts complete. **No implementation yet.** |
+| `memory-agent/` | CoALA-based memory service for agent orchestrations. MCP interface, SQLite + sqlite-vec storage, Python. | **Implemented.** Spec + contracts + 9 MCP tools + daemon + signing CLI. `python verify.py` and `pytest -q` both green. |
 
 ## Standing items
 

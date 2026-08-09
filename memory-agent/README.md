@@ -2,27 +2,50 @@
 
 A memory service for agent orchestrations, structured on **CoALA** — the cognitive architecture from *Cognitive Architectures for Language Agents* (Sumers, Yao, Narasimhan & Griffiths, Princeton; TMLR 2024; arXiv:2309.02427).
 
-**Status: specification only.** No implementation yet. Everything here is the contract to build against.
+**Status: implemented.** Nine MCP tools, SQLite + sqlite-vec storage, an independent daemon, and a signing CLI. `verify.py` and the test suite are both green, with one test per acceptance criterion in the spec.
 
-It stores three kinds of memory rather than one — **what happened** (episodic), **what is true** (semantic), **how to do something** (procedural) — exposes them over MCP as nine tools, and also runs on its own schedule to consolidate and prune its own store with no host present.
+It stores three kinds of memory rather than one — **what happened** (episodic), **what is true** (semantic), **how to do something** (procedural) — exposes them over MCP so any orchestration can attach, and also runs on its own schedule to consolidate and prune its own store with no host present.
 
 It has no grounding actions. It never reaches the network, never touches the filesystem outside its database, never talks to a user. That is what makes it safe to attach to an arbitrary agentic loop.
 
-## Contents
+## Install
 
-| Path | What it is |
-|---|---|
-| [`docs/memory-agent-coala-spec.md`](docs/memory-agent-coala-spec.md) | **The spec.** Architecture, CoALA mapping, data layer, action contract, integration patterns, numbered acceptance criteria, failure modes, decision log |
-| [`contracts/mcp-tools.json`](contracts/mcp-tools.json) | All nine MCP tools with input/output JSON Schema and error codes |
-| [`contracts/schemas/`](contracts/schemas/) | JSON Schema (draft 2020-12) for every record type |
-| [`contracts/db/schema.sql`](contracts/db/schema.sql) | SQLite DDL — tables, FTS5, sqlite-vec, constraints, views |
-| [`contracts/policy.example.yaml`](contracts/policy.example.yaml) | Retrieval weights, decay, TTLs, gates, daemon schedule |
+```bash
+pip install -e ".[all]"      # or: pip install -e ".[vector,server,dev]" to skip torch
+```
 
-## Two run modes
+Only `cryptography` and `PyYAML` are required. Everything else degrades visibly rather than failing: no `sqlite-vec` means keyword-only recall that says so, no `sentence-transformers` means the built-in hashing embedder, no `tiktoken` means a conservative token bound.
 
-**Attached** — the host orchestration owns the decision cycle; the memory agent serves it over MCP.
+## Set up a reviewer key
 
-**Independent** — a scheduled daemon runs the CoALA cycle over the store itself: consolidate episodes into facts, surface contradictions, propose procedures, expire and re-embed. Memory improves between sessions, not only during them.
+Approving a learned procedure requires **your** signature. Do this first — the server refuses to start without a reviewer key.
+
+```bash
+memory-agent keygen ~/.memory-agent/approval --id mike
+```
+
+It prints the exact block to paste into `policy.yaml`. An existing SSH key works too; only the public half goes in the config. The private half never reaches the server.
+
+## Run it
+
+```jsonc
+// claude_desktop_config.json / .mcp.json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "python",
+      "args": ["-m", "memory_agent.server"],
+      "env": { "MEMORY_AGENT_POLICY": "/path/to/policy.yaml" }
+    }
+  }
+}
+```
+
+Independent mode, on a schedule:
+
+```bash
+memory-agent-daemon --once          # or: python -m memory_agent.daemon --once
+```
 
 ## The shape of it
 
@@ -35,74 +58,64 @@ recall  →  act  →  remember  →  reflect
   "arguments": { "scope": "acme.crm", "query": "how does this client want invoices", "max_tokens": 1200 } }
 ```
 
-`context_block` comes back token-measured and ready to paste into a prompt. See §2 of the spec for the full quick start.
+`context_block` comes back token-measured and ready to paste into a prompt. See §2 of the spec for the full quick start, and §9 for integration patterns.
+
+## Reviewing what the agent wants to learn
+
+```bash
+memory-agent review list --scope acme.crm
+memory-agent review approve p_80dcd7f5 --reviewer mike --key ~/.memory-agent/approval
+memory-agent verify                       # re-check every stored approval
+memory-agent stats --scope acme.crm
+```
+
+Approving is also callable over MCP — the signature, not the caller, is what the server trusts, so an agent can relay an approval you produced and can never manufacture one.
+
+## Contents
+
+| Path | What it is |
+|---|---|
+| [`docs/memory-agent-coala-spec.md`](docs/memory-agent-coala-spec.md) | **The spec.** Architecture, CoALA mapping, data layer, action contract, integration patterns, 23 functional + 10 non-functional requirements with acceptance criteria, failure modes, decision log |
+| [`contracts/`](contracts/) | JSON Schema per record type, the nine-tool MCP contract, SQLite DDL, policy template, validated fixtures |
+| `src/memory_agent/` | The implementation — see the module map below |
+| [`tests/`](tests/) | One test per acceptance criterion, plus contract-conformance and non-functional suites |
+| [`verify.py`](verify.py) | Contract verification: schemas, DDL invariants, the published signature |
+| [`BACKLOG.md`](BACKLOG.md) | Open work. B-1 blocks a work version |
+
+| Module | Responsibility |
+|---|---|
+| `approval.py` | Ed25519 signing, canonical payload, verification. The gate rests on this |
+| `store.py` | SQLite over `contracts/db/schema.sql`. Never works around a constraint it trips |
+| `retrieval.py` | RRF over FTS5 + sqlite-vec, recency/importance, token-bounded context blocks |
+| `service.py` | The nine tools, as plain Python over dicts |
+| `server.py` | MCP wiring. Tool schemas come from the contract, not from code |
+| `daemon.py` | Independent mode — the CoALA cycle run over the store itself |
+| `cli.py` | Key management and the review queue. The only place a private key is read |
+| `embedding.py` | Pluggable embedder + token counter, both with offline fallbacks |
+
+## Verify
+
+```bash
+python verify.py          # contract checks: schemas, DDL invariants, the published signature
+pytest -q                 # one test per acceptance criterion, plus conformance and NF suites
+pytest -q -m slow         # + the recall latency benchmark
+```
+
+`verify.py` checks the published approval signature in `contracts/examples/records.json` — it is real and reproducible, and it is the golden test for signing code. If your verifier cannot check it, your canonical payload or candidate hashing disagrees with the contract and it will reject genuine approvals.
 
 ## Design commitments
 
 - **No grounding actions.** The worst it can do is return a bad memory.
-- **Procedural writes are human-gated, and the gate is real.** CoALA names procedural updates the riskiest learning modality. Unapproved candidates live in a separate table, unreachable by recall even if a query is wrong — and approving requires an **Ed25519 signature** from a key the server never holds the private half of. An agent has the tool but not the key, so it cannot approve its own proposals. Every approval is verifiable offline, years later, from the record alone.
-- **Contradictions are reported, never resolved.** The agent has no basis for picking a winner, and a store that silently picks wrong is worse than one that admits conflict.
+- **Procedural writes are human-gated, and the gate is real.** Unapproved candidates live in a separate table, unreachable by recall even if a query is wrong — and approving requires an Ed25519 signature. An agent has the tool but not the key.
+- **Approvals are verifiable offline, years later.** The signed payload is stored verbatim, so a procedure edited after approval fails the check instead of quietly staying "approved".
+- **Contradictions are reported, never resolved.** The agent has no basis for picking a winner.
 - **Nothing is destroyed by default.** Only an explicit `hard_delete` with `confirm: true` removes bytes.
-- **Recall cannot blow your context.** `context_block` is measured, not estimated, and never exceeds `max_tokens`.
+- **Recall cannot blow your context.** `context_block` is measured, not estimated.
 - **The whole memory is one file.** Copy `memory.db`, copy the memory. Which also means: back it up.
 
-## Verifying the contracts
+## Known limits
 
-```bash
-pip install jsonschema pyyaml
-
-# schemas are valid draft 2020-12 and all $refs resolve
-python -c "
-import json,glob
-from jsonschema import Draft202012Validator
-from referencing import Registry, Resource
-items=[]
-for f in glob.glob('contracts/schemas/*.json'):
-    s=json.load(open(f)); Draft202012Validator.check_schema(s)
-    items.append((s['\$id'],Resource.from_contents(s)))
-reg=Registry().with_resources(items)
-for _,r in items: list(Draft202012Validator(r.contents,registry=reg).iter_errors({}))
-print('schemas ok')"
-
-# DDL applies cleanly
-python -c "
-import sqlite3
-sqlite3.connect(':memory:').executescript(open('contracts/db/schema.sql').read())
-print('ddl ok')"
-
-# the example approval signature is real - this is the golden test for signing code
-pip install cryptography
-python -c "
-import json,base64,hashlib
-from cryptography.hazmat.primitives.serialization import load_ssh_public_key as L
-e=json.load(open('contracts/examples/records.json'))
-s=e['procedural']['record']['approval']['signature']
-L(e['approval_signature_fixture']['reviewer_public_key_openssh'].encode()).verify(
-    base64.b64decode(s['sig']), s['signed_payload'].encode())
-c=e['procedural']['record']
-cand={k:c[k] for k in ('trigger','preconditions','steps','success_signal','failure_signal')}
-assert hashlib.sha256(json.dumps(cand,sort_keys=True,separators=(',',':'),
-                                 ensure_ascii=False).encode()).hexdigest()==s['candidate_sha256']
-print('approval signature verifies and the candidate hash matches')"
-```
-
-If that last check fails in your implementation, your canonical payload or your candidate hashing disagrees with the contract — and it will reject genuine approvals.
-
-The `vec0` virtual table is commented out in the DDL because it requires the sqlite-vec extension; everything else runs on a stock SQLite build.
-
-## Before building
-
-Set up a reviewer key first — the server refuses to start without one:
-
-```bash
-ssh-keygen -t ed25519 -f ~/.memory-agent/approval -C "memory-agent approval"
-# put the .pub line and its fingerprint in policy.yaml under learning.approval.reviewers
-```
-
-An existing SSH key works too; only the public half goes in the config.
-
-Then read §12 of the spec for the full assumption set. The one that matters:
-
-- **A-3 — caller authentication is still missing.** Reviewer identity is now proven (signed approvals, §8, F18–F23), but nothing authenticates *who is calling*: any orchestration reaching the server can read and write any scope it can name, and `memory_remember` writes are unattributed. Scope isolates logically, not securely. Accepted for solo use on one machine over stdio, where anything that could reach the server could already open `memory.db` directly. **Blocks a work version**, or any second user, second machine, network transport, or client data. Tracked as [B-1 in `BACKLOG.md`](BACKLOG.md).
-
-The CoALA mapping in §3 is verified against the published paper (TMLR 02/2024, OpenReview `1i6ZCvflQJ`): memory modules, action taxonomy, learning modalities, and the planning/execution decision cycle all check out. §3 also casts this agent into the paper's own Table 2 format — it is the only entry with all three long-term memory modules and no external action space.
+- **A-3 / [B-1](BACKLOG.md): no caller authentication.** Reviewer identity is proven; *who is calling* is not. Any orchestration reaching the server can read and write any scope it can name, and `memory_remember` writes are unattributed. Fine for one person on one machine over stdio. **Blocks a work version**, a second user, a network transport, or client data.
+- Signing does not stop an attacker who already has code execution and can read an unencrypted key file. Use `--passphrase` at keygen, set `require_passphrase: true`, or move to a hardware key via `ssh-agent`.
+- The default `HashingEmbedder` captures lexical overlap only. Install `sentence-transformers` for real semantic recall.
+- Reflection's clustering is deliberately crude (by cycle, by repeated action). It queues proposals rather than committing, which is why that is tolerable — see assumption A-6.

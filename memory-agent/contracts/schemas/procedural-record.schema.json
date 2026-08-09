@@ -85,7 +85,17 @@
       "allOf": [
         {
           "if": { "properties": { "state": { "enum": ["approved", "rejected"] } }, "required": ["state"] },
-          "then": { "required": ["reviewed_by", "reviewed_at", "signature"] }
+          "then": {
+            "required": ["reviewed_by", "reviewed_at", "signature"],
+            "properties": {
+              "reviewed_by": {
+                "description": "Narrowed from the nullable form above: a decided record must name a reviewer. Requiring only presence would let `reviewed_by: null` through, which is an approval nobody made.",
+                "type": "string",
+                "minLength": 1
+              },
+              "reviewed_at": { "type": "string", "minLength": 1 }
+            }
+          }
         }
       ]
     },

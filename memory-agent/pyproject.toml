@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memory-agent"
+version = "1.0.0"
+description = "CoALA-based memory service for agent orchestrations, over MCP"
+requires-python = ">=3.10"
+
+# Deliberately small. Everything heavier is optional and degrades visibly rather
+# than failing: no sqlite-vec means keyword-only recall, no sentence-transformers
+# means the built-in hashing embedder, no tiktoken means a conservative token
+# bound. See spec NF4 and NF6.
+dependencies = [
+    "cryptography>=41",   # Ed25519 approval signatures. Not optional - the gate depends on it.
+    "PyYAML>=6",          # policy.yaml
+]
+
+[project.optional-dependencies]
+vector = ["sqlite-vec>=0.1.6"]
+embeddings = ["sentence-transformers>=2.2"]
+tokenizer = ["tiktoken>=0.5"]
+server = ["mcp>=1.0"]
+dev = ["pytest>=7", "jsonschema>=4.20"]
+all = ["sqlite-vec>=0.1.6", "sentence-transformers>=2.2", "tiktoken>=0.5", "mcp>=1.0"]
+
+[project.scripts]
+memory-agent = "memory_agent.cli:main"
+memory-agent-daemon = "memory_agent.daemon:main"
+memory-agent-server = "memory_agent.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = ["slow: benchmarks and large-corpus runs (deselect with -m 'not slow')"]

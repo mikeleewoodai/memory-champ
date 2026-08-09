@@ -1,8 +1,8 @@
 # Memory Agent — CoALA Specification
 
-*Version 1.0 · Runtime: Python · Storage: SQLite + sqlite-vec · Interface: MCP · Status: specification, not yet implemented*
+*Version 1.0 · Runtime: Python · Storage: SQLite + sqlite-vec · Interface: MCP · Status: implemented — see `../src/memory_agent/` and `../tests/`*
 
-*This document is the handoff to whoever builds it — it must stand on its own. Assume the builder has never read the CoALA paper and has no context from the conversation that produced this. Everything needed to implement, test, and operate the agent is either here or in `../contracts/`.*
+*This document is the handoff to whoever maintains it — it must stand on its own. Assume the builder has never read the CoALA paper and has no context from the conversation that produced this. Everything needed to implement, test, and operate the agent is either here or in `../contracts/`.*
 
 ---
 
@@ -366,7 +366,7 @@ When nothing is found, `context_block` is the empty string — never a sentence 
 
 **Contradictions are reported, never resolved.** Writing a fact that conflicts with an existing one leaves both active and returns `contradictions_detected`. The memory agent has no basis for picking a winner — it does not know which source is more reliable, and guessing is how a store starts lying with confidence.
 
-**`memory_forget` requires a declared blast radius.** `max_records` is mandatory: state how many records you expect to touch, and the call aborts unchanged if the selector matches more. A selector matching more than the caller expected is a bug, not a big job. `reason` is also mandatory and stored — a forget with no recorded reason is indistinguishable from data loss.
+**`memory_forget` requires a declared blast radius.** `max_records` is mandatory: state how many records you expect to touch, and the call aborts unchanged with `BLAST_RADIUS_EXCEEDED` if the selector matches more. A selector matching more than the caller expected is a bug, not a big job. `reason` is also mandatory and stored — a forget with no recorded reason is indistinguishable from data loss.
 
 **`memory_close_cycle` on a closed cycle is a no-op, not an error.** It returns `already_closed: true`. A retried loop iteration must not fail here.
 
@@ -404,7 +404,7 @@ nonce: 3f9a1c77b204e8d6
 expires: 2026-08-08T14:12:00Z
 ```
 
-To reject, flip the `decision:` line and sign that. One challenge authorises one decision, either way.
+To reject, flip the `decision:` line and sign that. One challenge authorises one decision, either way. A nonce that is unknown, expired, or already spent returns `APPROVAL_CHALLENGE_INVALID` — retryable by re-listing for a fresh challenge, but a repeat failure on a fresh one means the signature itself is wrong, not the timing.
 
 What each field buys:
 
@@ -706,9 +706,9 @@ Consolidation quality is unproven until there is real traffic.
 | Sub-50ms recall required | The Python + SQLite + local-embedding path has a floor | In-process embedding cache, or a different storage engine |
 | Facts needing relationship traversal ("who else works with X") | Triples in a relational table do not traverse | Graph store for semantic memory; episodic and procedural can stay |
 
-### Build order
+### Build order — complete
 
-The contracts are the spec; build against them in this sequence, since each stage is independently testable.
+The contracts are the spec. This was built against them in the sequence below, each stage independently tested. All stages are done; the list stands as the map of what lives where.
 
 1. Storage layer — apply `schema.sql`, implement CRUD against the record schemas. Verify every DDL invariant.
 2. `memory_remember` + `memory_recall`, keyword-only. This alone is a useful service and validates F1, F3, F4, F5.
