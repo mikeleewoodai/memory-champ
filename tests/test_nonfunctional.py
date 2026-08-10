@@ -300,3 +300,43 @@ def test_every_tool_is_reachable_through_dispatch(svc, a_procedure):
     for name in TOOL_NAMES:
         result = _dispatch(svc, name, {})
         assert result.get("error") != "UNKNOWN_TOOL", f"{name} has no handler"
+
+
+def test_the_mcp_handler_layer_actually_dispatches(svc):
+    """`_dispatch` working is not the same as the server working.
+
+    The test above passed the entire time the MCP server was broken. It calls
+    `_dispatch` directly, so it never touches the layer that was wrong:
+    build_server's 2.x handler took params from its FIRST argument, which is the
+    request *context*, not the request. The context carries its own `params` - a
+    raw Mapping of the wire payload - so the handshake succeeded, `claude mcp
+    list` reported "Connected", and every real tool call died with
+    "'dict' object has no attribute 'name'".
+
+    Connection is not capability. This exercises the SDK handlers as registered.
+    """
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsRequest
+
+    from memory_agent.server import build_server
+
+    server = build_server(svc)
+    if not hasattr(server, "get_request_handler"):
+        pytest.skip("1.x decorator API; dispatch is owned by the SDK there")
+
+    listed_h = server.get_request_handler(ListToolsRequest.model_fields["method"].default)
+    call_h = server.get_request_handler(CallToolRequest.model_fields["method"].default)
+
+    async def exercise():
+        listed = await listed_h.handler(None, None)
+        assert {t.name for t in listed.tools} == TOOL_NAMES
+
+        result = await call_h.handler(
+            None, CallToolRequestParams(name="memory_stats", arguments={}))
+        assert not getattr(result, "isError", getattr(result, "is_error", False))
+        payload = json.loads(result.content[0].text)
+        assert "counts" in payload, payload
+
+    asyncio.run(exercise())

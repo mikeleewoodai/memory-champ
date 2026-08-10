@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from .config import Policy
@@ -171,12 +172,21 @@ def build_server(service: MemoryService):
         PaginatedRequestParams,
     )
 
-    async def _list_handler(_req, *_a, **_kw):
+    # 2.x invokes handlers as (context, validated_params). The context is NOT the
+    # request: it carries its own `params`, a raw Mapping of the wire payload. An
+    # earlier version reached for `getattr(req, "params", req)` on the first
+    # argument, which therefore returned that dict and failed on `.name` - the
+    # server connected happily and then every tool call errored. Take params from
+    # the second argument, which the SDK has already validated against
+    # CallToolRequestParams.
+    def _field(obj, key):
+        return obj.get(key) if isinstance(obj, Mapping) else getattr(obj, key, None)
+
+    async def _list_handler(_ctx, _params=None):
         return ListToolsResult(tools=tools)
 
-    async def _call_handler(req, *_a, **_kw):
-        params = getattr(req, "params", req)
-        result = await run_tool(params.name, params.arguments)
+    async def _call_handler(_ctx, params):
+        result = await run_tool(_field(params, "name"), _field(params, "arguments") or {})
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(result, indent=2, default=str))],
             is_error=isinstance(result, dict) and "error" in result,
