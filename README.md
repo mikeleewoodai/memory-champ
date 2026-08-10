@@ -36,7 +36,7 @@ It prints the exact block to paste into `policy.yaml`. An existing SSH key works
 // claude_desktop_config.json / .mcp.json
 {
   "mcpServers": {
-    "memory": {
+    "memory-champ": {
       "command": "python",
       "args": ["-m", "memory_agent.server"],
       "env": { "MEMORY_AGENT_POLICY": "/path/to/policy.yaml" }
@@ -44,6 +44,8 @@ It prints the exact block to paste into `policy.yaml`. An existing SSH key works
   }
 }
 ```
+
+The key is the server name a host shows you and prefixes its tools with, so it is worth making specific. `memory` collides with the general idea of memory in a host that already talks about remembering things; `memory-champ` names *this* service. Point `command` at the interpreter that has this package installed — a venv's `python`, not the system one.
 
 Independent mode, on a schedule:
 

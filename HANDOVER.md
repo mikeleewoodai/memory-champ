@@ -51,7 +51,7 @@ memory-agent keygen ~/.memory-agent/approval --id mike   # do this first
 ```jsonc
 {
   "mcpServers": {
-    "memory": {
+    "memory-champ": {
       "command": "python",
       "args": ["-m", "memory_agent.server"],
       "env": { "MEMORY_AGENT_POLICY": "/abs/path/to/policy.yaml" }
@@ -59,6 +59,8 @@ memory-agent keygen ~/.memory-agent/approval --id mike   # do this first
   }
 }
 ```
+
+Three names are in play and they are not interchangeable: the repo and MCP server are **memory-champ**, the Python package and CLI are **memory_agent** / `memory-agent`, and `contract.server.name` is `memory-agent` too. Only the JSON key above is user-visible — it becomes the tool prefix — so that is the one worth being specific about. `command` must be the interpreter with this package installed.
 
 ```bash
 memory-agent-daemon --once                # independent mode
