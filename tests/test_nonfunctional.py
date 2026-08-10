@@ -169,8 +169,15 @@ def test_nf5_contract_declares_a_closed_world():
 
 
 def test_nf5_no_module_imports_a_network_client():
-    """A cheap structural guard. The strong claim is traced at runtime; this
-    catches the accidental `import requests` that would start the drift."""
+    """A cheap structural guard, and NECESSARY BUT NOT SUFFICIENT.
+
+    It reads our own modules, so it can only see our own imports. It stayed
+    green while `SentenceTransformer(name)` contacted Hugging Face on every
+    construction, because that call lives two layers down in a dependency.
+    `test_nf4_real_embedder_loads_with_the_network_blocked` is the one that
+    actually tests the claim; this catches the accidental `import requests`
+    that would start the drift.
+    """
     src = Path(__file__).resolve().parents[1] / "src" / "memory_agent"
     banned = ("import requests", "import httpx", "import urllib.request",
               "from urllib.request", "import socket", "aiohttp")
@@ -340,3 +347,43 @@ def test_the_mcp_handler_layer_actually_dispatches(svc):
         assert "counts" in payload, payload
 
     asyncio.run(exercise())
+
+
+def test_nf4_real_embedder_loads_with_the_network_blocked(monkeypatch):
+    """The README's first claim is "It never reaches the network." Test it.
+
+    The structural guard above greps our own imports and could never have seen
+    the violation: `SentenceTransformer(name)` revalidated an already-cached
+    model against Hugging Face on every construction, so every CLI command and
+    every server start made an outbound request. Blocking sockets is what the
+    claim actually says, so that is what this asserts.
+
+    A genuine first run is still allowed to download - refusing would be worse
+    than a slow start - so this skips when nothing is cached.
+    """
+    pytest.importorskip("sentence_transformers")
+
+    try:
+        from huggingface_hub import constants
+        cache = Path(constants.HF_HUB_CACHE)
+    except Exception:
+        cache = Path.home() / ".cache" / "huggingface" / "hub"
+    if not cache.exists() or not any(cache.glob("models--sentence-transformers--*")):
+        pytest.skip("no cached sentence-transformers model; first run may download")
+
+    import socket
+
+    def deny(*args, **kwargs):
+        raise AssertionError(
+            "loading the embedder opened a network connection; the offline "
+            "guarantee is broken (check local_files_only in "
+            "SentenceTransformerEmbedder)")
+
+    monkeypatch.setattr(socket.socket, "connect", deny)
+    monkeypatch.setattr(socket.socket, "connect_ex", deny)
+    monkeypatch.setattr(socket, "create_connection", deny)
+
+    from memory_agent.embedding import SentenceTransformerEmbedder
+
+    embedder = SentenceTransformerEmbedder("all-MiniLM-L6-v2")
+    assert len(embedder.embed(["offline"])[0]) == embedder.dimensions

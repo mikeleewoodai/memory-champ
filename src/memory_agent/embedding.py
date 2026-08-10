@@ -8,9 +8,12 @@ to degrade recall rather than break it.
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import struct
 from typing import Protocol
+
+log = logging.getLogger("memory_agent.embedding")
 
 
 class Embedder(Protocol):
@@ -58,12 +61,28 @@ class HashingEmbedder:
 
 
 class SentenceTransformerEmbedder:
-    """The real one. Imported lazily so the package works without torch."""
+    """The real one. Imported lazily so the package works without torch.
+
+    Loads from the local cache first, and only reaches Hugging Face when the
+    model genuinely is not there. Without that, `SentenceTransformer(name)`
+    contacts the Hub on *every* construction to revalidate a model already on
+    disk - so every CLI invocation and every server start made an outbound
+    request, printed an unauthenticated-requests warning, and spent ~2.5s doing
+    it. That quietly contradicted the first claim in the README: "It never
+    reaches the network."
+
+    A first run still downloads, because refusing to would be worse than a
+    slow start. It just says so instead of doing it silently forever after.
+    """
 
     def __init__(self, model: str = "all-MiniLM-L6-v2"):
         from sentence_transformers import SentenceTransformer  # noqa: PLC0415
 
-        self._model = SentenceTransformer(model)
+        try:
+            self._model = SentenceTransformer(model, local_files_only=True)
+        except Exception:
+            log.info("%s is not cached; downloading from Hugging Face (first run only)", model)
+            self._model = SentenceTransformer(model)
         self.name = model
         # sentence-transformers 5.x renamed get_sentence_embedding_dimension to
         # get_embedding_dimension and warns on the old name. Accept either rather
