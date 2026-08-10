@@ -44,16 +44,39 @@ def _require_bcrypt(what: str) -> None:
             "means the environment drifted.") from None
 
 
+PASSPHRASE_ATTEMPTS = 3
+
+
 def _load_key(path: str) -> "A.Ed25519PrivateKey":
     data = Path(path).expanduser().read_bytes()
     try:
         return A.load_private_key(data)
     except TypeError:
         # Encrypted key: prompt rather than failing. require_passphrase in policy
-        # is the setting that makes this the norm.
-        _require_bcrypt("Reading a passphrase-protected key")
+        # is the setting that makes this the norm. Reaching here also *proves*
+        # the file parsed as a well-formed encrypted key, which is what lets the
+        # handler below be certain a later failure is the passphrase.
+        pass
+
+    _require_bcrypt("Reading a passphrase-protected key")
+    for left in range(PASSPHRASE_ATTEMPTS - 1, -1, -1):
         pw = getpass.getpass(f"passphrase for {path}: ").encode()
-        return A.load_private_key(data, password=pw)
+        try:
+            return A.load_private_key(data, password=pw)
+        except ValueError:
+            # cryptography reports a failed decrypt as "Corrupt data: broken
+            # checksum". Raw, that is a traceback telling someone who mistyped
+            # that their signing key is damaged - which sends them looking for a
+            # backup instead of typing it again. The key parsed fine seconds ago.
+            if left:
+                print(f"wrong passphrase, {left} attempt(s) left", file=sys.stderr)
+                continue
+            raise SystemExit(
+                f"wrong passphrase for {path}.\n"
+                f"The key file itself is intact - it parsed as a well-formed "
+                f"encrypted key before the passphrase was tried.\n"
+                f"  memory-agent fingerprint {path}.pub    # confirm which key this is"
+            ) from None
 
 
 def cmd_keygen(args) -> int:

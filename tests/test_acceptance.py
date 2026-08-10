@@ -721,3 +721,38 @@ def test_f23_direct_verifier_rejects_revoked(reviewer):
     v = A.Verifier([A.ReviewerKey("mike", priv.public_key(), key_id, revoked=True)])
     with pytest.raises(ApprovalKeyUnknown):
         v.key(key_id)
+
+
+def test_f23_mistyped_passphrase_fails_cleanly_and_allows_retries(tmp_path, monkeypatch):
+    """A wrong passphrase must not look like a damaged key.
+
+    `cryptography` reports a failed decrypt as "Corrupt data: broken checksum".
+    Unhandled, that reaches the reviewer as a traceback asserting their signing
+    key is corrupt - which sends them hunting for a backup instead of typing it
+    again. The key is fine; only the passphrase was wrong, and the CLI knows
+    that because the file already parsed as a well-formed encrypted key.
+    """
+    from cryptography.hazmat.primitives import serialization as s
+
+    from memory_agent import cli
+
+    path = tmp_path / "approval"
+    key = Ed25519PrivateKey.generate()
+    path.write_bytes(key.private_bytes(
+        s.Encoding.PEM, s.PrivateFormat.OpenSSH, s.BestAvailableEncryption(b"correct")))
+
+    attempts = iter(["wrong", "wrong", "wrong"])
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: next(attempts))
+    with pytest.raises(SystemExit) as exc:
+        cli._load_key(str(path))
+    message = str(exc.value)
+    assert "wrong passphrase" in message
+    assert "intact" in message, "must say the key is fine, not imply corruption"
+    assert "broken checksum" not in message, "the raw cryptography error must not surface"
+
+    # A slip on the first try is recoverable rather than fatal.
+    attempts = iter(["fat fingered", "correct"])
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: next(attempts))
+    loaded = cli._load_key(str(path))
+    assert (loaded.public_key().public_bytes_raw()
+            == key.public_key().public_bytes_raw())
