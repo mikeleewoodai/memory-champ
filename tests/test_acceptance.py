@@ -187,13 +187,29 @@ def test_f9_five_step_cycle_replays_in_order(svc):
 # F10 - Crashes leave evidence
 # ===========================================================================
 def test_f10_unclosed_cycle_is_reaped_and_its_observations_survive(svc):
+    """Drives the documented path: spec §5 makes `memory_remember` the
+    observation write, not a store-level call.
+
+    This test used to reach past the service and call `store.add_observation`
+    directly. It passed for months while nothing in `src/` wrote that table at
+    all, so the crash-evidence guarantee was untested through the only interface
+    a host has.
+    """
     oc = svc.open_cycle(scope=SCOPE, session_id="run-1", goal="crash here",
                         preload={"enabled": False}, ttl_hours=1)
     cid = oc["cycle_id"]
     for i in range(3):
-        svc.store.add_observation(cid, i, f"observation {i}")
-    # the process dies here; the cycle is never closed
+        svc.remember(scope=SCOPE, type="episodic", content=f"observation {i}",
+                     episodic={"session_id": "run-1", "cycle_id": cid, "step_no": i,
+                               "outcome": "success"})
 
+    # Step 3 simulates the crash window itself: `remember` writes the observation
+    # before the record, so a process that dies between them leaves exactly this.
+    # The direct store call is the only way to reproduce that state - it stands in
+    # for a crash, not for the API.
+    svc.store.add_observation(cid, 3, "observation 3")
+
+    # the process dies here; the cycle is never closed
     reaped = svc.reap_cycles(now=utcnow() + timedelta(hours=2))
 
     assert reaped == 1
@@ -201,8 +217,16 @@ def test_f10_unclosed_cycle_is_reaped_and_its_observations_survive(svc):
     rows = svc.store._q(
         "SELECT r.content, e.outcome FROM records r JOIN episodic_attrs e ON e.record_id=r.id "
         "WHERE e.cycle_id=? ORDER BY e.step_no", (cid,))
-    assert [r["content"] for r in rows] == ["observation 0", "observation 1", "observation 2"]
-    assert {r["outcome"] for r in rows} == {"abandoned"}
+
+    # Every step survives, in order, with no duplicates - reaping keys on
+    # cycle_id:step_no, so the three that already had records are not written twice.
+    assert [r["content"] for r in rows] == [f"observation {i}" for i in range(4)]
+
+    # The step that never got a record is promoted as abandoned. The three that
+    # did keep the outcome the host recorded: the cycle was abandoned, those
+    # steps were not, and overwriting them would make the trace less true.
+    assert rows[3]["outcome"] == "abandoned"
+    assert {r["outcome"] for r in rows[:3]} == {"success"}
 
 
 # ===========================================================================

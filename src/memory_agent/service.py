@@ -270,6 +270,31 @@ class MemoryService:
                         ACTION_CLASSES)
             _check_enum("episodic.outcome", episodic.get("outcome"), OUTCOMES)
             self._rate_limit(episodic["session_id"], now)
+
+            # Spec §5: `memory_remember(observation)` IS the observation path -
+            # "written before acting on the result" - and close_cycle promotes
+            # what it finds. Nothing wrote the observations table, so
+            # promote_observations had nothing to promote and F10's crash
+            # evidence did not exist through the documented route.
+            #
+            # Keying the record on cycle_id:step_no is what keeps the two paths
+            # from fighting: reaping and promotion already write with that key,
+            # so they dedupe against the record written here instead of
+            # producing a second copy of the same step.
+            cycle_id, step_no = episodic.get("cycle_id"), episodic.get("step_no")
+            in_cycle = (cycle_id is not None and step_no is not None
+                        and self.store.get_cycle(cycle_id) is not None)
+            if in_cycle and idempotency_key is None:
+                idempotency_key = f"{cycle_id}:{step_no}"
+
+            if in_cycle:
+                # Observation first, record second, and the order is the point.
+                # A crash between the two leaves the cheap row behind, which
+                # reaping promotes with outcome "abandoned" - that is F10's
+                # evidence. Writing the record first would make the gap invisible.
+                self.store.add_observation(
+                    cycle_id, step_no, episodic.get("observation") or content, rfc3339(now))
+
             rid, created = self._write_episodic(
                 scope=scope, content=content, payload=payload, tags=tags,
                 importance=importance, confidence=confidence, provenance=provenance,

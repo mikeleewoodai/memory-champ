@@ -526,7 +526,9 @@ Numbered, testable, and written against the defaults in `policy.example.yaml`.
 *accept:* After a 5-step cycle, ordering `episodic_attrs` by `(session_id, cycle_id, step_no)` returns the 5 steps in the order they occurred, with no gaps and no duplicates.
 
 **F10 — Crashes leave evidence.**
-*accept:* Open a cycle, write 3 observations, kill the process. After restart and one daemon pass, the cycle is `abandoned`, and its 3 observations are present as episodic records with `outcome: "abandoned"`.
+*accept:* Open a cycle, write 3 steps with `memory_remember`, kill the process. After restart and one daemon pass, the cycle is `abandoned` and all 3 steps are present as episodic records, in order and without duplicates — reaping keys on `cycle_id:step_no`, so a step that already has a record is not written twice. A step whose observation landed but whose record did not — the crash window inside `remember`, which writes the observation first precisely so that gap is visible — is promoted with `outcome: "abandoned"`. Steps that recorded their own outcome keep it: the cycle was abandoned, those steps were not, and overwriting them would make the trace less true.
+
+*Amended 2026-08-09.* The original wording said all three observations become records with `outcome: "abandoned"`, which was accurate when the only way to write an observation was a store-level call and no step ever carried an outcome of its own. `memory_remember` is now the observation path the flow above already described, so a step's own outcome exists and is preserved.
 
 **F11 — Runaway loops get flagged.**
 *accept:* Opening 3 cycles in one scope within 60 minutes with the same goal and no successful outcome makes the 3rd response carry a non-null `loop_warning` with `repeats: 3` and a populated `advice`.

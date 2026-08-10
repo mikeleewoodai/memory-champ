@@ -76,7 +76,7 @@ memory-agent stats --scope acme.crm
 4. §13 — the decision log. Every non-obvious choice with the tension behind it
 5. `BACKLOG.md` — B-1, the one thing blocking a work version
 
-## The six things most likely to trip you up
+## The seven things most likely to trip you up
 
 1. **`content` is the only indexed field.** Nothing else is embedded or keyword-searchable. Writer-side invariant: whatever a future reader needs must appear in `content`, even if it also lives in a structured field. A procedure whose trigger is only in `procedural_attrs.trigger_text` will not be found.
 
@@ -93,6 +93,16 @@ memory-agent stats --scope acme.crm
 5. **The MCP SDK is moving.** `server.py` supports both 1.x (decorators) and 2.x (`add_request_handler`, snake_case `input_schema`/`open_world_hint`). Tool schemas come from `contracts/mcp-tools.json`, not from Python signatures — keep it that way, or the contract stops being the source of truth.
 
 6. **Writes open with `BEGIN IMMEDIATE`, and that is load-bearing.** A deferred `BEGIN` takes no write lock, so the first write has to upgrade read→write — and SQLite answers a contended upgrade with `SQLITE_BUSY` *without* invoking the busy handler, because blocking there can deadlock. `busy_timeout` is then never consulted and a second writer fails instantly with `database is locked`, rather than waiting its turn. The daemon plus an attached host is two writers on one `memory.db`, so this is the ordinary case, not an edge one. Don't change it back to a bare `BEGIN`.
+
+7. **The tests reach past seams, and that is where the bugs have been.** Three
+   defects in one day shared a shape: the test exercised the layer *beneath* the
+   one that broke, and stayed green throughout. `F22` mutated `steps` only, so
+   `content` sat outside the signature unnoticed. `test_every_tool_is_reachable_
+   through_dispatch` called `_dispatch` directly, so the MCP handler wiring was
+   broken the entire time the suite passed. `F10` called
+   `store.add_observation`, so nobody noticed that nothing in `src/` wrote that
+   table at all. When adding a test, ask which seam it crosses — internals were
+   never the part that failed.
 
 ## Decisions already made — don't re-litigate without reason
 
