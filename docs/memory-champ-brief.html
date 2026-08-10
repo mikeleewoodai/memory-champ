@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>memory-champ — the koala that remembers your tree</title>
+<style>
+  :root{
+    --bark:#3b3129;      --bark-soft:#5c5044;
+    --euc:#2f5d4f;       --euc-mid:#4a8b74;   --euc-pale:#a8cfbc;
+    --leaf:#7ea87c;      --leaf-2:#9dbd88;
+    --fur:#9aa5a8;       --fur-dark:#6f7b7f;
+    --nose:#3f3a38;
+    --blush:#e5b7ad;
+    --amber:#c98a3c;
+    --paper:#f6f4ee;     --card:#ffffff;      --raise:#eceae2;
+    --ink:#231e19;       --ink-soft:#5b5349;
+    --line:#ddd8cc;
+    --warn-bg:#fdf3e3;   --warn-line:#e3c188; --warn-ink:#7a5518;
+    --stop-bg:#fbeeea;   --stop-line:#e0b0a2; --stop-ink:#8c3d26;
+    --shadow:0 1px 2px rgba(35,30,25,.06), 0 8px 24px -12px rgba(35,30,25,.18);
+    --r:14px;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,sans-serif;
+    /* gum leaf + cross, used as CSS masks so they take the colour of whatever sets them */
+    --leafmask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 21c0-9 7-16 18-18 1 12-6 19-15 19H3z'/></svg>");
+    --xmask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 5l14 14M19 5L5 19' stroke='black' stroke-width='3.4' stroke-linecap='round' fill='none'/></svg>");
+    --pawmask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><ellipse cx='12' cy='16' rx='6' ry='5'/><circle cx='5' cy='9' r='2.6'/><circle cx='10' cy='6' r='2.6'/><circle cx='15' cy='6' r='2.6'/><circle cx='19.5' cy='9.5' r='2.6'/></svg>");
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#16191a; --card:#1d2223; --raise:#242a2b;
+      --ink:#e8e6e0;   --ink-soft:#a9b0ac; --line:#333b3c;
+      --euc:#8fd0b4;   --euc-mid:#5fae90; --euc-pale:#2b4a3f;
+      --leaf:#6f9c6e;  --leaf-2:#84a473;
+      --bark:#c9bfb2;  --bark-soft:#9b9186;
+      --fur:#8b9599;   --fur-dark:#5d686c; --nose:#2a2726;
+      --amber:#e0a75c;
+      --warn-bg:#2d2415; --warn-line:#5c4620; --warn-ink:#e5c184;
+      --stop-bg:#2e1d18; --stop-line:#5e332a; --stop-ink:#e8ab95;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"]{
+    --paper:#f6f4ee; --card:#fff; --raise:#eceae2; --ink:#231e19; --ink-soft:#5b5349;
+    --line:#ddd8cc; --euc:#2f5d4f; --euc-mid:#4a8b74; --euc-pale:#a8cfbc;
+    --leaf:#7ea87c; --leaf-2:#9dbd88;
+    --bark:#3b3129; --bark-soft:#5c5044; --fur:#9aa5a8; --fur-dark:#6f7b7f; --nose:#3f3a38;
+    --amber:#c98a3c;
+    --warn-bg:#fdf3e3; --warn-line:#e3c188; --warn-ink:#7a5518;
+    --stop-bg:#fbeeea; --stop-line:#e0b0a2; --stop-ink:#8c3d26;
+  }
+  :root[data-theme="dark"]{
+    --paper:#16191a; --card:#1d2223; --raise:#242a2b; --ink:#e8e6e0; --ink-soft:#a9b0ac;
+    --line:#333b3c; --euc:#8fd0b4; --euc-mid:#5fae90; --euc-pale:#2b4a3f;
+    --leaf:#6f9c6e; --leaf-2:#84a473;
+    --bark:#c9bfb2; --bark-soft:#9b9186; --fur:#8b9599; --fur-dark:#5d686c; --nose:#2a2726;
+    --amber:#e0a75c;
+    --warn-bg:#2d2415; --warn-line:#5c4620; --warn-ink:#e5c184;
+    --stop-bg:#2e1d18; --stop-line:#5e332a; --stop-ink:#e8ab95;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--sans); font-size:17px; line-height:1.62;
+    letter-spacing:-.003em;
+    background-image:
+      radial-gradient(900px 380px at 85% -10%, color-mix(in srgb, var(--euc-pale) 40%, transparent), transparent 70%),
+      radial-gradient(700px 300px at 5% 105%, color-mix(in srgb, var(--euc-pale) 26%, transparent), transparent 70%);
+    background-attachment:fixed;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:0 22px 90px}
+  h1,h2,h3{line-height:1.18;letter-spacing:-.022em;margin:0}
+  h2{font-size:1.68rem;margin:0 0 6px}
+  h3{font-size:1.06rem;margin:0 0 6px}
+  p{margin:0 0 14px}
+  a{color:var(--euc-mid)}
+  code{font-family:var(--mono);font-size:.85em;background:var(--raise);
+       border:1px solid var(--line);border-radius:6px;padding:.1em .38em;white-space:nowrap}
+  section{margin:58px 0 0}
+  .eyebrow{
+    font-family:var(--mono);font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--euc-mid);margin:0 0 10px;display:flex;align-items:center;gap:9px;
+  }
+  .eyebrow::before{content:"";width:16px;height:16px;flex:0 0 auto;
+    background:var(--euc-mid);
+    -webkit-mask:var(--leafmask) center/contain no-repeat; mask:var(--leafmask) center/contain no-repeat;}
+  .lede{font-size:1.08rem;color:var(--ink-soft);max-width:64ch}
+
+  /* ---------- hero ---------- */
+  header{padding:52px 0 4px;display:flex;gap:30px;align-items:center;flex-wrap:wrap}
+  .koala{width:176px;height:auto;flex:0 0 auto;filter:drop-shadow(0 12px 22px rgba(0,0,0,.14))}
+  .koala .eyes{animation:blink 7s infinite;transform-origin:center 88px}
+  @keyframes blink{0%,93%,100%{transform:scaleY(1)}95.5%,97.5%{transform:scaleY(.08)}}
+  @media (prefers-reduced-motion:reduce){.koala .eyes{animation:none}}
+  .hero-txt{flex:1 1 340px;min-width:280px}
+  h1{font-size:clamp(2.15rem,6vw,3.1rem);margin:0 0 4px}
+  h1 .champ{color:var(--euc-mid)}
+  .sub{font-family:var(--mono);font-size:.76rem;letter-spacing:.1em;text-transform:uppercase;
+       color:var(--bark-soft);margin:0 0 14px}
+  .tag{font-size:1.16rem;color:var(--ink-soft);max-width:52ch;margin:0}
+
+  /* ---------- cards ---------- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+        padding:22px 24px;box-shadow:var(--shadow)}
+  .grid{display:grid;gap:16px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:760px){.g3,.g2{grid-template-columns:1fr}}
+
+  /* ---------- koala fact chip ---------- */
+  .fact{display:flex;gap:12px;align-items:flex-start;margin:18px 0 0;
+        background:color-mix(in srgb, var(--euc-pale) 30%, var(--card));
+        border:1px dashed color-mix(in srgb, var(--euc-mid) 45%, transparent);
+        border-radius:12px;padding:13px 17px;font-size:.92rem;color:var(--ink-soft)}
+  .fact::before{content:"";width:19px;height:19px;flex:0 0 auto;margin-top:3px;
+    background:var(--euc-mid);
+    -webkit-mask:var(--pawmask) center/contain no-repeat;mask:var(--pawmask) center/contain no-repeat}
+  .fact b{color:var(--euc);font-weight:650}
+  @media (prefers-color-scheme:dark){.fact b{color:var(--euc-mid)}}
+  .fact p{margin:0}
+
+  /* ---------- problem ---------- */
+  .pain{border-left:4px solid var(--amber);background:var(--card);
+        border-radius:var(--r);padding:20px 24px;box-shadow:var(--shadow);
+        border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .loop-list{list-style:none;margin:18px 0 0;padding:0;counter-reset:step}
+  .loop-list li{position:relative;padding:0 0 0 44px;margin:0 0 13px;color:var(--ink-soft)}
+  .loop-list li::before{
+    counter-increment:step;content:counter(step);
+    position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;
+    display:grid;place-items:center;font-family:var(--mono);font-size:.78rem;
+    background:var(--raise);border:1px solid var(--line);color:var(--bark-soft)}
+  .loop-list li b{color:var(--ink);font-weight:600}
+  .loop-list li:last-child::before{background:var(--amber);border-color:var(--amber);color:#fff}
+  .loop-list li:last-child{color:var(--ink)}
+
+  /* ---------- three leaves ---------- */
+  .leafcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+            padding:20px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .leafcard::after{content:"";position:absolute;right:-22px;top:-22px;width:84px;height:84px;
+    background:var(--euc-pale);opacity:.35;
+    -webkit-mask:var(--leafmask) center/contain no-repeat;mask:var(--leafmask) center/contain no-repeat}
+  .leafcard .icn{width:34px;height:34px;display:block;margin:0 0 12px;position:relative}
+  .leafcard .kind{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;
+                  text-transform:uppercase;color:var(--euc-mid);margin:0 0 4px}
+  .leafcard p{font-size:.95rem;color:var(--ink-soft);margin:0}
+  .leafcard .plain{color:var(--ink);font-weight:600;font-size:1.02rem;margin:0 0 8px}
+
+  /* ---------- cycle ---------- */
+  /* grid, not flex: 1fr tracks + min-width:0 stop a long tool name from
+     widening one card and forcing a ragged 3+1 wrap */
+  .cycle{display:grid;grid-template-columns:repeat(4,1fr);margin-top:18px}
+  .step{min-width:0;background:var(--card);border:1px solid var(--line);
+        padding:16px;position:relative;box-shadow:var(--shadow)}
+  .step:first-child{border-radius:var(--r) 0 0 var(--r)}
+  .step:last-child{border-radius:0 var(--r) var(--r) 0}
+  .step+.step{border-left:none}
+  @media(max-width:880px){
+    .cycle{grid-template-columns:repeat(2,1fr);gap:12px}
+    .step,.step:first-child,.step:last-child{border-radius:var(--r);border-left:1px solid var(--line)}
+  }
+  @media(max-width:520px){.cycle{grid-template-columns:1fr}}
+  .step .n{font-family:var(--mono);font-size:.68rem;color:var(--euc-mid);letter-spacing:.12em}
+  .step .t{font-weight:650;margin:2px 0 4px}
+  .step .d{font-size:.87rem;color:var(--ink-soft)}
+  .step .tool{font-family:var(--mono);font-size:.72rem;color:var(--bark-soft);
+              margin-top:9px;display:block;word-break:break-all}
+
+  /* ---------- tree figure ---------- */
+  figure{margin:22px 0 0}
+  .treefig{width:100%;height:auto;display:block;background:var(--card);
+           border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:6px}
+  figcaption{font-size:.85rem;color:var(--bark-soft);margin-top:10px;text-align:center}
+
+  /* ---------- gate ---------- */
+  .gate{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:start}
+  @media(max-width:640px){.gate{grid-template-columns:1fr}}
+  .keyicn{width:56px;height:56px}
+
+  /* ---------- tech ---------- */
+  details.tech{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+               box-shadow:var(--shadow);overflow:hidden;margin-bottom:12px}
+  details.tech summary{cursor:pointer;padding:16px 22px;font-weight:640;list-style:none;
+                       display:flex;align-items:center;gap:11px;user-select:none}
+  details.tech summary::-webkit-details-marker{display:none}
+  details.tech summary::before{content:"";width:17px;height:17px;flex:0 0 auto;
+    background:var(--euc-mid);
+    -webkit-mask:var(--leafmask) center/contain no-repeat;mask:var(--leafmask) center/contain no-repeat}
+  details.tech summary::after{content:"+";margin-left:auto;font-family:var(--mono);
+    color:var(--euc-mid);font-size:1.2rem;line-height:1}
+  details.tech[open] summary::after{content:"–"}
+  details.tech summary:hover{background:var(--raise)}
+  details.tech .body{padding:0 22px 20px;border-top:1px solid var(--line);padding-top:16px}
+  details.tech .body p:last-child,details.tech .body ul:last-child{margin-bottom:0}
+  .kv{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:.94rem}
+  .kv dt{font-family:var(--mono);font-size:.78rem;color:var(--euc-mid);padding-top:4px;white-space:nowrap}
+  .kv dd{margin:0;color:var(--ink-soft)}
+  @media(max-width:560px){.kv{grid-template-columns:1fr;gap:2px 0}.kv dd{margin-bottom:10px}}
+
+  table{width:100%;border-collapse:collapse;font-size:.92rem}
+  .scroller{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;
+     color:var(--bark-soft);font-weight:500}
+  td:first-child{font-family:var(--mono);font-size:.82rem;color:var(--euc-mid);white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+
+  /* ---------- callouts ---------- */
+  .note{border-radius:12px;padding:16px 20px;font-size:.95rem;margin:16px 0 0}
+  .note.warn{background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-ink)}
+  .note.stop{background:var(--stop-bg);border:1px solid var(--stop-line);color:var(--stop-ink)}
+  .note b{font-weight:700}
+  .note p:last-child{margin:0}
+  .note .hd{display:flex;align-items:center;gap:8px;font-weight:700;margin:0 0 6px}
+
+  ul.tick{list-style:none;padding:0;margin:14px 0 0}
+  ul.tick li{position:relative;padding-left:28px;margin-bottom:10px;color:var(--ink-soft)}
+  ul.tick li::before{content:"";position:absolute;left:0;top:.45em;width:14px;height:14px;
+    background:var(--euc-mid);
+    -webkit-mask:var(--leafmask) center/contain no-repeat;mask:var(--leafmask) center/contain no-repeat}
+  ul.tick li b{color:var(--ink)}
+  ul.cross li::before{background:var(--stop-ink);
+    -webkit-mask:var(--xmask) center/contain no-repeat;mask:var(--xmask) center/contain no-repeat}
+
+  footer{margin:72px 0 0;padding-top:26px;border-top:1px solid var(--line);
+         color:var(--bark-soft);font-size:.85rem;display:flex;justify-content:space-between;
+         gap:14px;flex-wrap:wrap;align-items:center}
+  .zzz{font-family:var(--mono);opacity:.55;letter-spacing:.3em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <svg class="koala" viewBox="0 0 210 190" role="img" aria-label="A koala holding a eucalyptus leaf">
+    <g>
+      <circle cx="48" cy="72" r="34" fill="var(--fur)"/>
+      <circle cx="48" cy="72" r="21" fill="var(--blush)" opacity=".85"/>
+      <circle cx="162" cy="72" r="34" fill="var(--fur)"/>
+      <circle cx="162" cy="72" r="21" fill="var(--blush)" opacity=".85"/>
+    </g>
+    <ellipse cx="105" cy="103" rx="62" ry="57" fill="var(--fur)"/>
+    <ellipse cx="105" cy="112" rx="46" ry="42" fill="var(--fur)" opacity=".45"/>
+    <g class="eyes">
+      <circle cx="79" cy="88" r="8" fill="var(--nose)"/>
+      <circle cx="131" cy="88" r="8" fill="var(--nose)"/>
+      <circle cx="81.5" cy="85.5" r="2.6" fill="#fff" opacity=".9"/>
+      <circle cx="133.5" cy="85.5" r="2.6" fill="#fff" opacity=".9"/>
+    </g>
+    <path d="M105 92c15 0 25 10 25 22s-11 22-25 22-25-10-25-22 10-22 25-22z" fill="var(--nose)"/>
+    <ellipse cx="97" cy="103" rx="5" ry="7" fill="#fff" opacity=".16"/>
+    <path d="M105 138c0 6-6 9-11 6M105 138c0 6 6 9 11 6" stroke="var(--nose)"
+          stroke-width="3" stroke-linecap="round" fill="none" opacity=".65"/>
+    <g transform="translate(150,140) rotate(-18)">
+      <path d="M0 0C22 -4 40 6 46 20 26 26 6 18 0 0z" fill="var(--leaf)"/>
+      <path d="M0 0C16 4 32 12 46 20" stroke="var(--euc)" stroke-width="1.6" fill="none" opacity=".55"/>
+    </g>
+  </svg>
+
+  <div class="hero-txt">
+    <h1>memory-<span class="champ">champ</span></h1>
+    <p class="sub">A local memory service for your agents · CoALA · MCP · SQLite</p>
+    <p class="tag">A koala goes back to the same tree every day. Your agent should go back to the
+      same context — no matter which terminal you opened it in.</p>
+  </div>
+</header>
+
+<!-- ================= PROBLEM ================= -->
+<section>
+  <p class="eyebrow">The problem it solves</p>
+  <h2>Every new terminal is a fresh case of amnesia</h2>
+  <p class="lede">You're deep in a project. You close the window, or open a second one, or come back
+    on Tuesday. The assistant is brilliant again — and knows nothing again.</p>
+
+  <div class="pain" style="margin-top:20px">
+    <p>Here's the loop that actually costs you money:</p>
+    <ol class="loop-list">
+      <li>You hit a gnarly bug. Forty minutes of back-and-forth. <b>You solve it.</b></li>
+      <li>Session ends. That reasoning lives in a transcript nobody will ever read again.</li>
+      <li>New terminal, two weeks later. Same corner of the codebase.</li>
+      <li>You re-explain the project. Then the constraint. Then the thing you already decided.</li>
+      <li><b>The same bug reappears — and you pay full price to solve it a second time.</b></li>
+    </ol>
+    <p style="margin:18px 0 0">The waste isn't one wrong answer. It's the <b>re-derivation</b>:
+      re-reading files you already read, re-litigating a decision you already made, rebuilding context
+      that existed last Tuesday. Tokens spent on work that was already done once.</p>
+  </div>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card">
+      <h3>Without a memory</h3>
+      <p style="color:var(--ink-soft);margin:0">Context lives in the <b>conversation</b>. Close it and
+        it's gone. Every new terminal starts on the forest floor and pays to climb back up.</p>
+    </div>
+    <div class="card">
+      <h3>With memory-champ</h3>
+      <p style="color:var(--ink-soft);margin:0">Context lives in <b>one file on your disk</b>, outside
+        every repo. New terminal, new window, new week — the agent checks the tree first.</p>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <p class="hd">⚠ Being straight with you about this</p>
+    <p>memory-champ doesn't make forgetting impossible. It gives the agent a place to look and a place
+      to write — <b>somebody still has to call it.</b> If nothing recalls at the start of a session and
+      nothing remembers at the end, you get an empty database and the same Groundhog Day. The tool is
+      half of it; the habit is the other half.</p>
+  </div>
+</section>
+
+<!-- ================= PLAIN ENGLISH ================= -->
+<section>
+  <p class="eyebrow">In plain English</p>
+  <h2>A notebook your assistant is allowed to keep</h2>
+  <p class="lede">Not a smarter model. A <b>filing cabinet</b> that sits beside the model — one it can
+    search before it starts, and write to when it learns something worth keeping.</p>
+
+  <div class="grid g3" style="margin-top:22px">
+    <div class="leafcard">
+      <svg class="icn" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="20" r="17" fill="none" stroke="var(--euc-mid)" stroke-width="2.4"/>
+        <path d="M20 11v10l7 4" stroke="var(--euc-mid)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+      </svg>
+      <p class="kind">Episodic</p>
+      <p class="plain">What happened</p>
+      <p>“On the 4th we tried the deferred transaction and it deadlocked under two writers.”
+        The diary. Events, with dates on them.</p>
+    </div>
+    <div class="leafcard">
+      <svg class="icn" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M20 5l14 8v14l-14 8-14-8V13z" fill="none" stroke="var(--euc-mid)"
+              stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M20 20l14-7M20 20v15M20 20L6 13" stroke="var(--euc-mid)" stroke-width="1.8" opacity=".7"/>
+      </svg>
+      <p class="kind">Semantic</p>
+      <p class="plain">What is true</p>
+      <p>“Every text read in this codebase passes UTF-8 explicitly.”
+        The facts and rules that outlive any one session.</p>
+    </div>
+    <div class="leafcard">
+      <svg class="icn" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M7 12h20M7 20h26M7 28h16" stroke="var(--euc-mid)" stroke-width="2.6" stroke-linecap="round"/>
+        <circle cx="32" cy="12" r="4.5" fill="none" stroke="var(--euc-mid)" stroke-width="2.2"/>
+      </svg>
+      <p class="kind">Procedural</p>
+      <p class="plain">How to do it</p>
+      <p>“The four steps that fix this build.” The playbooks — and the only kind
+        <b>you</b> have to sign off before it counts.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:22px">Most “AI memory” is one undifferentiated pile of notes. Splitting it three
+    ways matters because the three behave differently: an event is <i>true on a date</i>, a fact is
+    <i>true until it isn't</i>, and a procedure is <i>something an agent will actually go and do</i> —
+    which is exactly why the third one gets a lock on it.</p>
+
+  <div class="fact">
+    <p><b>Koala fact.</b> A joey can't digest eucalyptus on its own — it inherits the gut microbes
+      from its mother before it can eat the leaves. Procedural memory is the same idea: the
+      know-how has to be handed over deliberately, or the next one starts from nothing.</p>
+  </div>
+</section>
+
+<!-- ================= THE CYCLE ================= -->
+<section>
+  <p class="eyebrow">How it runs</p>
+  <h2>Four moves, over and over</h2>
+  <p class="lede">The whole thing is one loop. Everything else is plumbing underneath it.</p>
+
+  <div class="cycle">
+    <div class="step">
+      <span class="n">01</span>
+      <div class="t">Recall</div>
+      <div class="d">Before working: “what do I already know about this?” Comes back as a block
+        sized to fit the prompt.</div>
+      <code class="tool">memory_recall</code>
+    </div>
+    <div class="step">
+      <span class="n">02</span>
+      <div class="t">Act</div>
+      <div class="d">The agent does the actual work. memory-champ isn't involved — it has no
+        hands.</div>
+      <code class="tool">— your agent —</code>
+    </div>
+    <div class="step">
+      <span class="n">03</span>
+      <div class="t">Remember</div>
+      <div class="d">What was learned goes back in, tagged to a project so it surfaces next
+        time.</div>
+      <code class="tool">memory_remember</code>
+    </div>
+    <div class="step">
+      <span class="n">04</span>
+      <div class="t">Reflect</div>
+      <div class="d">Later, it reads its own store, spots repeats, and <i>proposes</i> a playbook.
+        Proposes.</div>
+      <code class="tool">memory_reflect</code>
+    </div>
+  </div>
+
+  <p style="margin-top:20px">Step 4 is the one aimed straight at the repeat-bug problem. When the same
+    fix shows up for the third time, reflection notices and drafts it as a procedure — a candidate
+    sitting in a queue with your name on it, waiting for a yes.</p>
+
+  <div class="fact">
+    <p><b>Koala fact.</b> Koalas sleep up to 20 hours a day, because eucalyptus is a terrible fuel.
+      memory-champ has the same energy budget: it does nothing until asked, and its background
+      daemon wakes on a schedule, tidies the store, and goes straight back to sleep.</p>
+  </div>
+</section>
+
+<!-- ================= SCOPE ================= -->
+<section>
+  <p class="eyebrow">Why terminals stop mattering</p>
+  <h2>One tree per project</h2>
+  <p class="lede">The store lives at <code>~/.memory-agent/memory.db</code> — deliberately <b>outside
+    every repo</b>. Changing folders doesn't change the memory. Separation comes from a label called
+    <b>scope</b>, not from where you happen to be standing.</p>
+
+  <figure>
+    <svg class="treefig" viewBox="0 0 700 358" role="img"
+         aria-label="Three terminals branching off one trunk named bluegum.api, with a koala clinging to the trunk and a single memory.db file at the roots">
+      <defs>
+        <!-- one gum leaf, reused all over the figure -->
+        <path id="gl" d="M0 0C21 -4 38 6 44 19 25 25 6 17 0 0z"/>
+      </defs>
+
+      <!-- scope pill: the tree's name. Sits clear above the canopy -->
+      <g transform="translate(350,22)" text-anchor="middle"
+         font-family="ui-monospace,Consolas,monospace" font-size="12.5">
+        <rect x="-92" y="-15" width="184" height="27" rx="9"
+              fill="var(--euc-pale)" stroke="var(--euc-mid)"/>
+        <text y="4" fill="var(--euc)" font-weight="700">scope: bluegum.api</text>
+      </g>
+
+      <!-- canopy -->
+      <g opacity=".9">
+        <use href="#gl" transform="translate(294,80) rotate(196)" fill="var(--leaf)"/>
+        <use href="#gl" transform="translate(304,70) rotate(238)" fill="var(--leaf-2)"/>
+        <use href="#gl" transform="translate(350,64) rotate(272)" fill="var(--leaf)"/>
+        <use href="#gl" transform="translate(398,70) rotate(302)" fill="var(--leaf-2)"/>
+        <use href="#gl" transform="translate(406,80) rotate(344)" fill="var(--leaf)"/>
+        <use href="#gl" transform="translate(320,94) rotate(168)" fill="var(--leaf-2)" opacity=".75"/>
+        <use href="#gl" transform="translate(380,94) rotate(12)" fill="var(--leaf)" opacity=".75"/>
+      </g>
+
+      <!-- branches (drawn before the trunk so they tuck behind it) -->
+      <g stroke="var(--bark)" stroke-width="5" fill="none" stroke-linecap="round" opacity=".5">
+        <path d="M350 200C300 200 250 194 204 187"/>
+        <path d="M350 232c50 0 100 6 146 13"/>
+        <path d="M350 262c-50 0-96 6-144 13"/>
+      </g>
+
+      <!-- trunk -->
+      <path d="M322 96h56v192h-56z" fill="var(--bark)" opacity=".22"/>
+      <path d="M322 96h56v192h-56z" fill="none" stroke="var(--bark)" stroke-width="2" opacity=".45"/>
+      <path d="M338 108v168M362 116v152" stroke="var(--bark)" stroke-width="1.5"
+            opacity=".22" fill="none"/>
+
+      <!-- koala clinging to the trunk -->
+      <g transform="translate(350,140)">
+        <!-- torso behind the head, so it reads as a body hugging the trunk -->
+        <ellipse cx="0" cy="44" rx="25" ry="28" fill="var(--fur-dark)"/>
+        <!-- arms hooked around the trunk -->
+        <path d="M-22 30c-14 3-20 12-15 23M22 30c14 3 20 12 15 23"
+              stroke="var(--fur-dark)" stroke-width="11" stroke-linecap="round" fill="none"/>
+        <circle cx="-38" cy="55" r="6" fill="var(--fur)"/>
+        <circle cx="38" cy="55" r="6" fill="var(--fur)"/>
+        <!-- ears -->
+        <circle cx="-30" cy="-16" r="16" fill="var(--fur)"/>
+        <circle cx="30" cy="-16" r="16" fill="var(--fur)"/>
+        <circle cx="-30" cy="-16" r="9" fill="var(--blush)" opacity=".85"/>
+        <circle cx="30" cy="-16" r="9" fill="var(--blush)" opacity=".85"/>
+        <!-- head -->
+        <ellipse cx="0" cy="2" rx="29" ry="27" fill="var(--fur)"/>
+        <!-- face -->
+        <circle cx="-12" cy="-5" r="4" fill="var(--nose)"/>
+        <circle cx="12" cy="-5" r="4" fill="var(--nose)"/>
+        <path d="M0 -1c7 0 12 5 12 11s-5 10-12 10-12-4-12-10 5-11 12-11z" fill="var(--nose)"/>
+      </g>
+
+      <!-- terminal chips, each centred on the branch that reaches it -->
+      <g font-family="ui-monospace,Consolas,monospace" font-size="12.5">
+        <g transform="translate(62,170)">
+          <rect width="142" height="34" rx="10" fill="var(--raise)" stroke="var(--line)"/>
+          <use href="#gl" transform="translate(13,9) scale(.55)" fill="var(--leaf)"/>
+          <text x="46" y="22" fill="var(--ink)">Terminal A</text>
+        </g>
+        <g transform="translate(496,228)">
+          <rect width="142" height="34" rx="10" fill="var(--raise)" stroke="var(--line)"/>
+          <use href="#gl" transform="translate(13,9) scale(.55)" fill="var(--leaf-2)"/>
+          <text x="46" y="22" fill="var(--ink)">Terminal B</text>
+        </g>
+        <g transform="translate(64,258)">
+          <rect width="142" height="34" rx="10" fill="var(--raise)" stroke="var(--line)"/>
+          <use href="#gl" transform="translate(13,9) scale(.55)" fill="var(--leaf)"/>
+          <text x="46" y="22" fill="var(--ink)">Terminal C</text>
+        </g>
+      </g>
+
+      <!-- roots -->
+      <path d="M350 288c0 16-62 18-88 26M350 288c0 16 62 18 88 26M350 288v26"
+            stroke="var(--bark)" stroke-width="4" fill="none" stroke-linecap="round" opacity=".4"/>
+
+      <!-- the one store -->
+      <g transform="translate(350,316)" text-anchor="middle"
+         font-family="ui-monospace,Consolas,monospace" font-size="12">
+        <rect x="-124" y="0" width="248" height="30" rx="10"
+              fill="var(--card)" stroke="var(--euc-mid)" stroke-dasharray="4 3"/>
+        <text y="20" fill="var(--ink-soft)">one store · ~/.memory-agent/memory.db</text>
+      </g>
+    </svg>
+    <figcaption>Three terminals, three branches, one tree. The memory is at the roots, not in
+      the window you happen to have open.</figcaption>
+  </figure>
+
+  <div class="scroller card" style="margin-top:20px;padding:6px 10px">
+    <table>
+      <thead><tr><th>Scope</th><th>What lands in it</th></tr></thead>
+      <tbody>
+        <tr><td>bluegum.api</td><td>The payments service</td></tr>
+        <tr><td>manna.web</td><td>The marketing site</td></tr>
+        <tr><td>rivergum.crm</td><td>A CRM build</td></tr>
+        <tr><td>tallowwood.game</td><td>The weekend project</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:.86rem;color:var(--bark-soft);margin:8px 2px 0">
+    Name them however you like — these are gum trees because we couldn't help ourselves.</p>
+
+  <p style="margin-top:18px">Three terminals working the payments service all pass
+    <code>bluegum.api</code>, so all three see the same memory. A terminal on the weekend project
+    passes <code>tallowwood.game</code> and sees none of it. That's the whole trick — and it's also
+    the whole fragility:</p>
+
+  <div class="note warn">
+    <p class="hd">⚠ Scope matching is exact, and there is no wildcard</p>
+    <p>Recalling <code>bluegum</code> when the records were written under <code>bluegum.api</code>
+      returns <b>nothing</b> — not an error, just silence, which is far more expensive. Derive the
+      scope from the project, keep the list somewhere the agent reads every session, and never invent
+      a fresh one per session.</p>
+  </div>
+
+  <div class="fact">
+    <p><b>Koala fact.</b> Koalas live in a home range of specific trees and come back to the same ones
+      night after night. Wandering outside the range is how a koala gets into trouble — and a wandering
+      <code>scope</code> argument is how memory gets lost.</p>
+  </div>
+</section>
+
+<!-- ================= THE GATE ================= -->
+<section>
+  <p class="eyebrow">The safety story</p>
+  <h2>It can hand you a bad memory. That's the worst it can do.</h2>
+
+  <div class="card gate" style="margin-top:20px">
+    <svg class="keyicn" viewBox="0 0 56 56" aria-hidden="true">
+      <circle cx="19" cy="19" r="11" fill="none" stroke="var(--amber)" stroke-width="3.4"/>
+      <path d="M27 27l19 19M39 39l6-6M45 45l5-5" stroke="var(--amber)" stroke-width="3.4"
+            stroke-linecap="round" fill="none"/>
+    </svg>
+    <div>
+      <h3>Procedures need your signature — a real one</h3>
+      <p style="margin:0 0 10px;color:var(--ink-soft)">When the agent wants to teach itself a new
+        playbook, it can only <b>queue</b> it. Candidates sit in a separate table that recall cannot
+        reach, even if a query goes wrong. Approving requires an Ed25519 signature from a private key
+        the agent doesn't have.</p>
+      <p style="margin:0;color:var(--ink-soft)">The agent holds the tool. You hold the key. It can
+        relay an approval you produced; it can never manufacture one — and because the signed payload
+        is stored verbatim, a procedure edited after approval <b>fails the check</b> instead of quietly
+        staying “approved”.</p>
+    </div>
+  </div>
+
+  <div class="fact">
+    <p><b>Koala fact.</b> Koalas have fingerprints so close to ours that they've reportedly muddled
+      forensic examiners. Fitting, for the one part of this system that runs on a signature only you
+      can produce.</p>
+  </div>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card">
+      <h3 style="color:var(--euc-mid)">What it deliberately can't do</h3>
+      <ul class="tick cross">
+        <li>No <b>network</b>. Ever.</li>
+        <li>No <b>filesystem</b> outside its own database.</li>
+        <li>No talking to a user, no sending anything anywhere.</li>
+        <li>No deleting by default — bytes only go away on an explicit hard delete with
+          <code>confirm: true</code>.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--euc-mid)">What it does on purpose</h3>
+      <ul class="tick">
+        <li><b>Reports contradictions, never resolves them.</b> If two memories disagree you get
+          both — it has no basis for picking a winner.</li>
+        <li><b>Measures the context block</b> it returns, so recall can't quietly blow your window.</li>
+        <li><b>Degrades visibly.</b> A missing optional dependency means weaker recall that
+          <i>says so</i>, not a crash and not a silent downgrade.</li>
+        <li><b>The whole memory is one file.</b> Copy it, you copied the memory. Which also
+          means: back it up.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="note stop">
+    <p class="hd">⛔ The live limit — read this before you widen the deployment</p>
+    <p><b>There is no caller authentication yet</b> (tracked as B-1). Reviewer identity is proven;
+      <i>who is calling</i> is not. Any orchestration that reaches the server can read and write any
+      scope it can name, and writes are unattributed — so a bad write can't be traced or reliably
+      cleaned. Scope isolates <b>logically, not securely</b>.</p>
+    <p style="margin-top:10px">That's fine for one person, on one machine, over stdio. It is <b>not</b>
+      fine for a second user, a network transport, a work deployment, or <b>any client data</b>.
+      Those wait until B-1 closes.</p>
+  </div>
+</section>
+
+<!-- ================= TECHNICAL ================= -->
+<section>
+  <p class="eyebrow">For the technical reader</p>
+  <h2>Under the fur</h2>
+  <p class="lede">Optional detail. Everything above is the whole brief if you don't want this.</p>
+
+  <div style="margin-top:20px">
+    <details class="tech">
+      <summary>Architecture &amp; storage</summary>
+      <div class="body">
+        <dl class="kv">
+          <dt>foundation</dt><dd>Structured on <b>CoALA</b> — <i>Cognitive Architectures for Language
+            Agents</i> (Sumers, Yao, Narasimhan &amp; Griffiths, Princeton; TMLR 2024;
+            arXiv:2309.02427). The three memory types and the decision cycle come from the paper,
+            not from taste.</dd>
+          <dt>storage</dt><dd>SQLite with <code>sqlite-vec</code>. Single file at
+            <code>~/.memory-agent/memory.db</code>. Schema is DDL in <code>contracts/db/</code>,
+            executed as part of verification — not described in prose and hoped for.</dd>
+          <dt>retrieval</dt><dd><b>Reciprocal Rank Fusion</b> over two independent searches: FTS5
+            keyword and sqlite-vec similarity, then weighted by recency and importance. Output is a
+            <code>context_block</code> that is <b>token-measured, not estimated</b>, against a
+            <code>max_tokens</code> you pass in.</dd>
+          <dt>interface</dt><dd>MCP over stdio. Nine tools. <code>server.py</code> builds its
+            advertised schemas from <code>contracts/mcp-tools.json</code> rather than from Python
+            signatures — so the contract stays the source of truth instead of drifting into
+            decoration.</dd>
+          <dt>independent</dt><dd>A daemon runs the same CoALA cycle over the store with no host
+            attached, consolidating and pruning on a schedule.
+            <code>memory-agent-daemon --once</code>.</dd>
+          <dt>degradation</dt><dd>Only <code>cryptography</code> and <code>PyYAML</code> are hard
+            requirements. No <code>sqlite-vec</code> → keyword-only recall that announces itself. No
+            <code>sentence-transformers</code> → built-in hashing embedder (lexical overlap only).
+            No <code>tiktoken</code> → a conservative token bound.</dd>
+        </dl>
+      </div>
+    </details>
+
+    <details class="tech">
+      <summary>The nine tools</summary>
+      <div class="body">
+        <div class="scroller">
+          <table>
+            <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td>memory_recall</td><td>Hybrid search across long-term memory. CoALA's retrieval
+                action. Returns records for a program and a prose block for a prompt.</td></tr>
+              <tr><td>memory_remember</td><td>Write an episodic or semantic record. The learning
+                action, in its ungated forms.</td></tr>
+              <tr><td>memory_reflect</td><td>Consolidate a window of memory — reasoning applied to the
+                agent's own store. Queues, doesn't commit.</td></tr>
+              <tr><td>memory_propose_procedure</td><td>Queue a candidate procedure. <b>The only path
+                into procedural memory.</b></td></tr>
+              <tr><td>memory_review_proposals</td><td>List / approve / reject. Approve and reject
+                require an Ed25519 signature.</td></tr>
+              <tr><td>memory_open_cycle</td><td>Begin one decision cycle, get a working-memory handle.
+                Optional — recall-only hosts skip it.</td></tr>
+              <tr><td>memory_close_cycle</td><td>End the cycle; promote working memory into durable
+                episodic records.</td></tr>
+              <tr><td>memory_forget</td><td>Three escalating modes. <code>tombstone</code> hides but
+                keeps — reversible. Hard delete needs explicit confirmation.</td></tr>
+              <tr><td>memory_stats</td><td>Counts, coverage, warning signs. A memory a host can't
+                inspect is a memory a host can't trust.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
+    <details class="tech">
+      <summary>The gate, mechanically</summary>
+      <div class="body">
+        <p>Unapproved candidates live in a <b>separate table</b> — not a flag on the same row. Recall
+          queries can't reach them even if a query is malformed, which is a structural guarantee
+          rather than a filter someone has to remember to apply.</p>
+        <p>Approval is an Ed25519 signature over a canonical payload, and the payload is stored
+          <b>verbatim</b> alongside the signature. That's what makes an approval verifiable offline
+          years later, and what makes a post-approval edit fail the check instead of inheriting the
+          old blessing. <code>memory-agent verify</code> re-checks every stored approval.</p>
+        <p>Approving is callable over MCP, and that's safe for a specific reason: <b>the server trusts
+          the signature, not the caller.</b> An agent can relay an approval you produced. It cannot
+          produce one.</p>
+        <div class="note warn" style="margin-top:4px">
+          <p><b>Use <code>--passphrase</code> at keygen.</b> The security claim is “the agent holds the
+            tool but not the key” — and the usual deployment is an agent with shell access <i>on the
+            same machine as the key</i>. An unencrypted private key at a predictable path lets it sign
+            its own approvals, which is the exact thing the gate exists to prevent.</p>
+        </div>
+      </div>
+    </details>
+
+    <details class="tech">
+      <summary>Verification — how you know it works</summary>
+      <div class="body">
+        <dl class="kv">
+          <dt>verify.py</dt><dd>132 contract checks — JSON Schemas validated, DDL actually executed,
+            and the published approval signature in <code>contracts/examples/records.json</code>
+            re-verified. That fixture is the golden test for the signing code.</dd>
+          <dt>pytest -q</dt><dd>One test per numbered acceptance criterion, asserting the
+            <code>accept:</code> line as written, plus contract-conformance and non-functional
+            suites.</dd>
+          <dt>eval_recall.py</dt><dd>The separate question nothing else answers: <i>is recall any
+            good?</i> Scores keyword-only vs. hashing vs. sentence-transformers over one corpus, split
+            into a lexical control set and a paraphrase set. <b>Only the paraphrase set
+            discriminates</b> — an embedding that wins when the words already match has proved
+            nothing.</dd>
+        </dl>
+        <div class="note stop" style="margin-top:14px">
+          <p><b>If the signature check fails, suspect how the file was read before you touch the
+            canonical form.</b> <code>records.json</code> is UTF-8 with non-ASCII in it; reading it
+            with the Windows default (cp1252) mangles a character and changes the hash —
+            indistinguishable from canonical drift, and it invites the one repair you must never make.
+            Editing <code>candidate_hash()</code> until the hashes agree would break <i>every genuine
+            approval</i>.</p>
+        </div>
+      </div>
+    </details>
+
+    <details class="tech">
+      <summary>Known limits, stated plainly</summary>
+      <div class="body">
+        <ul class="tick cross" style="margin-top:0">
+          <li><b>No caller authentication (A-3 / B-1).</b> Blocks a work version, a second user, a
+            network transport, and client data. Solo-on-stdio only.</li>
+          <li><b>Signing doesn't stop code execution.</b> An attacker who can already run code and
+            read an unencrypted key file wins. Passphrase,
+            <code>require_passphrase: true</code>, or a hardware key via ssh-agent.</li>
+          <li><b>The default embedder is lexical only.</b> <code>HashingEmbedder</code> catches word
+            overlap, not meaning. Install sentence-transformers for real semantic recall.</li>
+          <li><b>Reflection's clustering is crude</b> — by cycle, by repeated action. Tolerable
+            precisely <i>because</i> it queues proposals instead of committing them (assumption
+            A-6).</li>
+          <li><b>One file means one point of failure.</b> Copying <code>memory.db</code> copies
+            everything, which is the convenience and the risk. Back it up.</li>
+        </ul>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ================= HABIT ================= -->
+<section>
+  <p class="eyebrow">Making it actually pay off</p>
+  <h2>Three habits, and the credits stop leaking</h2>
+  <div class="grid g3" style="margin-top:20px">
+    <div class="card">
+      <h3><span style="color:var(--euc-mid);font-family:var(--mono);font-size:.8rem">01 ·</span>
+        Recall first</h3>
+      <p style="margin:0;color:var(--ink-soft);font-size:.95rem">Open a session with a recall against
+        the project's scope. One cheap call beats twenty minutes of rediscovery.</p>
+    </div>
+    <div class="card">
+      <h3><span style="color:var(--euc-mid);font-family:var(--mono);font-size:.8rem">02 ·</span>
+        Write the why</h3>
+      <p style="margin:0;color:var(--ink-soft);font-size:.95rem">Record root causes and decisions, not
+        status. “We chose X because Y” survives; “fixed the build” helps nobody.</p>
+    </div>
+    <div class="card">
+      <h3><span style="color:var(--euc-mid);font-family:var(--mono);font-size:.8rem">03 ·</span>
+        Clear the queue</h3>
+      <p style="margin:0;color:var(--ink-soft);font-size:.95rem">Review proposals now and then. An
+        unreviewed queue means reflection keeps spotting the same pattern and nothing ever becomes a
+        playbook.</p>
+    </div>
+  </div>
+
+  <div class="fact">
+    <p><b>Koala fact.</b> Of roughly 700 eucalyptus species, a koala will eat from only a few dozen.
+      Being picky is the point — recall that returns everything is the same as recall that returns
+      nothing.</p>
+  </div>
+</section>
+
+<footer>
+  <span>memory-champ · a CoALA memory service · local, offline, one file</span>
+  <span class="zzz" title="koalas sleep up to 20 hours a day">z z z</span>
+</footer>
+
+</div>
+</body>
+</html>

@@ -8,6 +8,12 @@ It stores three kinds of memory rather than one — **what happened** (episodic)
 
 It has no grounding actions. It never reaches the network, never touches the filesystem outside its database, never talks to a user. That is what makes it safe to attach to an arbitrary agentic loop.
 
+## Start here — the brief
+
+**[`docs/memory-champ-brief.html`](docs/memory-champ-brief.html)** explains this project to someone who has never seen it: the problem it solves, how it works in plain English, and the technical detail folded into collapsible sections underneath. It names the limits too, including the one that blocks a work version.
+
+Download it and open it in a browser — GitHub serves `.html` as source rather than rendering it. The file is self-contained: all CSS and graphics are inline, nothing is fetched, so it works offline.
+
 ## Install
 
 ```bash
