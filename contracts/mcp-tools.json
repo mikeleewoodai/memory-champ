@@ -59,7 +59,7 @@
               },
               "types": {
                 "type": "array",
-                "items": { "enum": ["episodic", "semantic", "procedural"] },
+                "items": { "type": "string", "description": "One of: `episodic`, `semantic`, `procedural`.", "enum": ["episodic", "semantic", "procedural"] },
                 "uniqueItems": true,
                 "default": ["semantic", "procedural"]
               },
@@ -108,7 +108,7 @@
                   },
                   "last_outcomes": {
                     "type": "array",
-                    "items": { "enum": ["success", "failure", "partial", "abandoned", "unknown"] }
+                    "items": { "type": "string", "description": "One of: `success`, `failure`, `partial`, `abandoned`, `unknown`.", "enum": ["success", "failure", "partial", "abandoned", "unknown"] }
                   },
                   "advice": {
                     "description": "Plain-language suggestion, e.g. 'this goal has failed 3 times with the same error; change approach or escalate'.",
@@ -143,7 +143,7 @@
         "additionalProperties": false,
         "properties": {
           "cycle_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
-          "outcome": { "enum": ["success", "failure", "partial", "abandoned", "unknown"] },
+          "outcome": { "type": "string", "description": "One of: `success`, `failure`, `partial`, `abandoned`, `unknown`.", "enum": ["success", "failure", "partial", "abandoned", "unknown"] },
           "summary": {
             "description": "One-paragraph account of what happened. Stored as a single episodic record and embedded, so future recalls can find the cycle by what it was about rather than by id.",
             "type": "string", "maxLength": 8192
@@ -209,7 +209,7 @@
           "query": { "type": "string", "minLength": 1, "maxLength": 4096 },
           "types": {
             "type": "array",
-            "items": { "enum": ["episodic", "semantic", "procedural"] },
+            "items": { "type": "string", "description": "One of: `episodic`, `semantic`, `procedural`.", "enum": ["episodic", "semantic", "procedural"] },
             "uniqueItems": true,
             "default": ["semantic", "procedural"]
           },
@@ -314,7 +314,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "class": {
-                    "enum": ["reasoning", "retrieval", "learning", "grounding.digital", "grounding.dialogue", "grounding.physical"]
+                    "type": "string", "description": "One of: `reasoning`, `retrieval`, `learning`, `grounding.digital`, `grounding.dialogue`, `grounding.physical`.", "enum": ["reasoning", "retrieval", "learning", "grounding.digital", "grounding.dialogue", "grounding.physical"]
                   },
                   "name": { "type": "string", "maxLength": 255 },
                   "input": { "type": "object" }
@@ -322,7 +322,7 @@
                 "required": ["class", "name"]
               },
               "observation": { "type": "string", "maxLength": 8192 },
-              "outcome": { "enum": ["success", "failure", "partial", "abandoned", "unknown"] },
+              "outcome": { "type": "string", "description": "One of: `success`, `failure`, `partial`, `abandoned`, `unknown`.", "enum": ["success", "failure", "partial", "abandoned", "unknown"] },
               "reward": { "oneOf": [{ "type": "number", "minimum": -1, "maximum": 1 }, { "type": "null" }] },
               "error": {
                 "type": "object",
@@ -349,7 +349,7 @@
               "object": { "type": "string", "maxLength": 2048 },
               "valid_from": { "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/timestamp" }, { "type": "null" }] },
               "valid_to": { "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/timestamp" }, { "type": "null" }] },
-              "volatility": { "enum": ["stable", "slow", "volatile"] },
+              "volatility": { "type": "string", "description": "One of: `stable`, `slow`, `volatile`.", "enum": ["stable", "slow", "volatile"] },
               "sensitivity": {
                 "description": "Marking a record pii or secret keeps it out of context blocks by default and makes it findable by a redaction sweep. Mark honestly — an unmarked secret is one nobody can clean up.",
                 "enum": ["none", "pii", "secret"]
@@ -390,7 +390,7 @@
               "properties": {
                 "record_id": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
                 "existing_content": { "type": "string" },
-                "basis": { "enum": ["triple", "semantic"] }
+                "basis": { "type": "string", "description": "One of: `triple`, `semantic`.", "enum": ["triple", "semantic"] }
               },
               "required": ["record_id", "basis"]
             }
@@ -447,11 +447,11 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "types": { "type": "array", "items": { "enum": ["episodic", "semantic", "procedural"] } },
+                  "types": { "type": "array", "items": { "type": "string", "description": "One of: `episodic`, `semantic`, `procedural`.", "enum": ["episodic", "semantic", "procedural"] } },
                   "tags": { "type": "array", "items": { "type": "string" } },
                   "session_id": { "type": "string" },
                   "older_than": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
-                  "sensitivity": { "enum": ["none", "pii", "secret"] },
+                  "sensitivity": { "type": "string", "description": "One of: `none`, `pii`, `secret`.", "enum": ["none", "pii", "secret"] },
                   "never_accessed": { "type": "boolean" }
                 },
                 "minProperties": 1
@@ -460,7 +460,7 @@
             "minProperties": 1,
             "maxProperties": 1
           },
-          "mode": { "enum": ["tombstone", "redact", "hard_delete"], "default": "tombstone" },
+          "mode": { "type": "string", "description": "One of: `tombstone`, `redact`, `hard_delete`.", "enum": ["tombstone", "redact", "hard_delete"], "default": "tombstone" },
           "reason": {
             "description": "Required and stored. A forget with no recorded reason is indistinguishable from data loss.",
             "type": "string", "minLength": 1, "maxLength": 1024
@@ -495,7 +495,7 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "mode": { "enum": ["tombstone", "redact", "hard_delete"] },
+          "mode": { "type": "string", "description": "One of: `tombstone`, `redact`, `hard_delete`.", "enum": ["tombstone", "redact", "hard_delete"] },
           "dry_run": { "type": "boolean" },
           "matched_count": { "type": "integer", "minimum": 0 },
           "affected_count": { "type": "integer", "minimum": 0 },
@@ -540,7 +540,7 @@
           "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
           "modes": {
             "type": "array",
-            "items": { "enum": ["consolidate", "contradictions", "promote", "importance"] },
+            "items": { "type": "string", "description": "One of: `consolidate`, `contradictions`, `promote`, `importance`.", "enum": ["consolidate", "contradictions", "promote", "importance"] },
             "uniqueItems": true,
             "minItems": 1,
             "default": ["consolidate", "contradictions"]
@@ -604,7 +604,7 @@
               "additionalProperties": false,
               "properties": {
                 "proposal_id": { "type": "string" },
-                "kind": { "enum": ["procedural", "semantic", "forget", "supersede"] },
+                "kind": { "type": "string", "description": "One of: `procedural`, `semantic`, `forget`, `supersede`.", "enum": ["procedural", "semantic", "forget", "supersede"] },
                 "summary": { "type": "string" },
                 "rationale": { "type": "string" }
               },
@@ -619,7 +619,7 @@
               "properties": {
                 "a": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
                 "b": { "$ref": "memory-envelope.schema.json#/$defs/uuid" },
-                "basis": { "enum": ["triple", "semantic"] },
+                "basis": { "type": "string", "description": "One of: `triple`, `semantic`.", "enum": ["triple", "semantic"] },
                 "note": { "type": "string" }
               },
               "required": ["a", "b", "basis"]
@@ -688,7 +688,7 @@
             "maxItems": 256
           },
           "proposed_by": { "type": "string", "minLength": 1, "maxLength": 255 },
-          "source": { "enum": ["host", "daemon", "human", "import"], "default": "host" },
+          "source": { "type": "string", "description": "One of: `host`, `daemon`, `human`, `import`.", "enum": ["host", "daemon", "human", "import"], "default": "host" },
           "dedupe_key": { "type": "string", "minLength": 1, "maxLength": 255 },
           "supersedes": {
             "oneOf": [{ "$ref": "memory-envelope.schema.json#/$defs/uuid" }, { "type": "null" }]
@@ -738,7 +738,7 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "action": { "enum": ["list", "approve", "reject"] },
+          "action": { "type": "string", "description": "One of: `list`, `approve`, `reject`.", "enum": ["list", "approve", "reject"] },
           "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
           "proposal_ids": {
             "description": "For approve/reject. Each id must have a matching entry in `signatures` — decisions are signed one proposal at a time, because a single signature covering a batch could be reused against a different batch.",
@@ -777,8 +777,8 @@
             }
           },
           "note": { "type": "string", "maxLength": 2048 },
-          "state": { "enum": ["pending", "approved", "rejected", "expired"], "default": "pending" },
-          "kind": { "enum": ["procedural", "semantic", "forget", "supersede"] },
+          "state": { "type": "string", "description": "One of: `pending`, `approved`, `rejected`, `expired`.", "enum": ["pending", "approved", "rejected", "expired"], "default": "pending" },
+          "kind": { "type": "string", "description": "One of: `procedural`, `semantic`, `forget`, `supersede`.", "enum": ["procedural", "semantic", "forget", "supersede"] },
           "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
           "challenge_ttl_seconds": {
             "description": "For list: how long the issued nonces stay valid. Short by default so an unused challenge cannot be banked.",
@@ -799,7 +799,7 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "action": { "enum": ["list", "approve", "reject"] },
+          "action": { "type": "string", "description": "One of: `list`, `approve`, `reject`.", "enum": ["list", "approve", "reject"] },
           "proposals": {
             "description": "Populated for list. Includes the full candidate so a reviewer can judge without a second call.",
             "type": "array",
@@ -809,8 +809,8 @@
               "properties": {
                 "proposal_id": { "type": "string" },
                 "scope": { "$ref": "memory-envelope.schema.json#/$defs/scope" },
-                "kind": { "enum": ["procedural", "semantic", "forget", "supersede"] },
-                "state": { "enum": ["pending", "approved", "rejected", "expired"] },
+                "kind": { "type": "string", "description": "One of: `procedural`, `semantic`, `forget`, `supersede`.", "enum": ["procedural", "semantic", "forget", "supersede"] },
+                "state": { "type": "string", "description": "One of: `pending`, `approved`, `rejected`, `expired`.", "enum": ["pending", "approved", "rejected", "expired"] },
                 "candidate": { "type": "object" },
                 "rationale": { "type": "string" },
                 "evidence_record_ids": {
@@ -819,7 +819,7 @@
                 },
                 "proposed_by": { "type": "string" },
                 "proposed_at": { "$ref": "memory-envelope.schema.json#/$defs/timestamp" },
-                "source": { "enum": ["host", "daemon", "human", "import"] },
+                "source": { "type": "string", "description": "One of: `host`, `daemon`, `human`, `import`.", "enum": ["host", "daemon", "human", "import"] },
                 "candidate_sha256": {
                   "description": "Hash of the candidate exactly as shown here. Also embedded in signing_payload, so a signature commits to this specific content.",
                   "type": "string", "pattern": "^[0-9a-f]{64}$"

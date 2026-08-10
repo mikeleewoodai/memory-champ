@@ -36,6 +36,18 @@ class ProceduralWriteRequiresProposal(MemoryAgentError):
     code, http = "PROCEDURAL_WRITE_REQUIRES_PROPOSAL", 400
 
 
+class InvalidFieldValue(MemoryAgentError):
+    """A field carried a value outside its allowed set.
+
+    Exists so a constrained field fails the way every other refusal here does -
+    a code plus the allowed values - instead of surfacing a raw SQLite CHECK
+    violation. A caller that cannot see the allowed set can only discover it by
+    triggering the error, and a DB constraint string is not an API.
+    """
+
+    code, http = "INVALID_FIELD_VALUE", 400
+
+
 class ApprovalSignatureRequired(MemoryAgentError):
     """Approving or rejecting requires an Ed25519 signature from a reviewer key."""
 

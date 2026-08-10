@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -127,6 +128,13 @@ def _dispatch(service: MemoryService, name: str, arguments: dict | None):
         return exc.to_dict()
     except TypeError as exc:
         return {"error": "INVALID_ARGUMENTS", "message": str(exc)}
+    except sqlite3.IntegrityError as exc:
+        # A DDL constraint is the last line of defence, not an API. Reaching here
+        # means some field is unvalidated upstream - a caller should still get a
+        # typed refusal rather than a raw "CHECK constraint failed: ..." string,
+        # which names a column they cannot see and no allowed set.
+        log.warning("%s -> unvalidated constraint violation: %s", name, exc)
+        return {"error": "INVALID_FIELD_VALUE", "message": str(exc), "retryable": False}
 
 
 def build_server(service: MemoryService):

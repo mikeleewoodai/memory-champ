@@ -24,6 +24,7 @@ from .errors import (
     BlastRadiusExceeded,
     ConfirmRequired,
     CycleNotFound,
+    InvalidFieldValue,
     MemoryAgentError,
     ProceduralWriteRequiresProposal,
     ScopeRequired,
@@ -265,6 +266,9 @@ class MemoryService:
         if type == "episodic":
             if not episodic:
                 raise MemoryAgentError("episodic writes require the `episodic` block")
+            _check_enum("episodic.action.class", (episodic.get("action") or {}).get("class"),
+                        ACTION_CLASSES)
+            _check_enum("episodic.outcome", episodic.get("outcome"), OUTCOMES)
             self._rate_limit(episodic["session_id"], now)
             rid, created = self._write_episodic(
                 scope=scope, content=content, payload=payload, tags=tags,
@@ -726,6 +730,28 @@ class MemoryService:
 
 
 # ---------------------------------------------------------------------------
+# The one Python-side copy of the values the DDL constrains. A test asserts
+# these match contracts/db/schema.sql and contracts/mcp-tools.json, because a
+# list that lives in three places and is checked in none is how a constraint
+# silently stops matching what callers are told.
+ACTION_CLASSES = ("reasoning", "retrieval", "learning",
+                  "grounding.digital", "grounding.dialogue", "grounding.physical")
+OUTCOMES = ("success", "failure", "partial", "abandoned", "unknown")
+
+
+def _check_enum(field: str, value, allowed: tuple[str, ...]) -> None:
+    """Refuse a bad value here rather than letting the DDL CHECK do it.
+
+    The constraint would catch it either way, but as a sqlite3.IntegrityError -
+    which is not a typed refusal, carries no allowed set, and reaches the caller
+    as a raw DB string. This turns it into the same shape as every other refusal.
+    """
+    if value is not None and value not in allowed:
+        raise InvalidFieldValue(
+            f"{field}={value!r} is not one of {', '.join(allowed)}",
+            field=field, value=value, allowed=list(allowed))
+
+
 def _require_scope(scope: str | None) -> None:
     if not scope:
         raise ScopeRequired("scope is the isolation boundary; there is no wildcard")

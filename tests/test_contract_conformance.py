@@ -204,3 +204,70 @@ def test_published_fixture_still_matches_the_implementation():
         sig["key_id"], sig["signed_payload"], sig["sig"])
     assert A.candidate_hash(ex["procedural"]["record"]) == sig["candidate_sha256"]
     assert set(A.parse_payload(sig["signed_payload"])) == set(A.PAYLOAD_FIELDS)
+
+
+def test_constrained_values_agree_across_python_ddl_and_contract():
+    """One list, three homes, previously checked in none.
+
+    ACTION_CLASSES and OUTCOMES exist in Python (to refuse a bad value with a
+    typed error), in schema.sql (as a CHECK), and in mcp-tools.json (as an
+    enum). Nothing compared them, so they could drift until a caller was told
+    one set and constrained by another.
+    """
+    import re
+
+    from memory_agent.service import ACTION_CLASSES, OUTCOMES
+
+    ddl = (ROOT / "contracts" / "db" / "schema.sql").read_text(encoding="utf-8")
+    contract = load_contract()
+
+    def ddl_check(column):
+        m = re.search(rf"{column}\s+TEXT.*?IN \((.*?)\)", ddl, re.S)
+        assert m, f"no CHECK found for {column}"
+        return set(re.findall(r"'([^']+)'", m.group(1)))
+
+    def contract_enum(tool, *path):
+        node = [t for t in contract["tools"] if t["name"] == tool][0]["inputSchema"]
+        for step in path:
+            node = node["properties"][step]
+        return set(node["enum"])
+
+    assert set(ACTION_CLASSES) == ddl_check("action_class"), "python vs DDL"
+    assert set(ACTION_CLASSES) == contract_enum(
+        "memory_remember", "episodic", "action", "class"), "python vs contract"
+
+    assert set(OUTCOMES) == ddl_check("outcome"), "python vs DDL"
+    assert set(OUTCOMES) == contract_enum("memory_remember", "episodic", "outcome")
+
+
+def test_every_enum_tells_a_caller_its_allowed_values():
+    """A bare `enum` is invisible to the model calling the tool.
+
+    Clients normalise a property with no `type` and no `description` down to
+    `{}`, so the allowed values can only be discovered by sending a wrong one
+    and reading the error. Descriptions survive that normalisation; enums do
+    not. Every constrained field must therefore say what it accepts in prose.
+    """
+    contract = load_contract()
+    bare = []
+    # Conditional subschemas are matching logic, not documentation. An enum
+    # inside an `if` says which instances the branch applies to; nobody reads it
+    # to learn what to send, and describing it would be noise.
+    CONDITIONAL = {"allOf", "anyOf", "oneOf", "if", "then", "else", "not"}
+
+    def walk(node, path, conditional=False):
+        if isinstance(node, dict):
+            if "enum" in node and not node.get("description") and not conditional:
+                bare.append(path)
+            for k, v in node.items():
+                walk(v, f"{path}.{k}", conditional or k in CONDITIONAL)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, f"{path}[{i}]", conditional)
+
+    for tool in contract["tools"]:
+        walk(tool["inputSchema"], tool["name"])
+
+    assert not bare, (
+        "enum properties with no description, invisible to a calling model: "
+        + ", ".join(p.replace(".properties.", ".") for p in bare))
