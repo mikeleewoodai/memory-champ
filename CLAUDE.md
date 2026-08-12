@@ -12,7 +12,7 @@ A CoALA-based memory service for agent orchestrations. MCP interface, SQLite + s
 | `contracts/` | Source of truth. Tool schemas, record schemas, DDL, the signed example fixture |
 | `src/memory_agent/` | Implementation. The package keeps the `memory_agent` name; the repo is `memory-champ` |
 | `verify.py` | 132 contract checks. Run before and after any contract change |
-| `HANDOVER.md` | Read-cold orientation, plus the six things most likely to trip you up |
+| `HANDOVER.md` | Read-cold orientation, plus the eight things most likely to trip you up |
 | `BACKLOG.md` | Open work, highest priority first |
 
 ## Standing items
