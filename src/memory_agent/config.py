@@ -12,6 +12,22 @@ import yaml
 from .approval import ReviewerKey, fingerprint, load_public_key
 from .errors import NoReviewerKeysConfigured
 
+# Where `memory-agent init` puts the reviewer key, policy, and database. Kept
+# out of any repo on purpose: the store outlives the checkout, and moving
+# between projects must not move the memory. Resolved per call rather than at
+# import so a test can redirect HOME.
+MEMORY_AGENT_HOME_ENV = "MEMORY_AGENT_HOME"
+
+
+def default_home() -> Path:
+    """The conventional runtime directory, `~/.memory-agent` unless overridden."""
+    override = os.environ.get(MEMORY_AGENT_HOME_ENV)
+    return Path(override).expanduser() if override else Path.home() / ".memory-agent"
+
+
+def default_policy_path() -> Path:
+    return default_home() / "policy.yaml"
+
 
 @dataclass
 class RetrievalWeights:
@@ -90,7 +106,17 @@ class Policy:
 
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Policy":
-        path = path or os.environ.get("MEMORY_AGENT_POLICY")
+        """Resolve in three steps: an explicit path, then MEMORY_AGENT_POLICY,
+        then the conventional location `memory-agent init` writes to.
+
+        The third step is what lets a host config be just the command, with no
+        env var to get wrong. An explicit argument and the env var both still
+        win over it, so an existing setup that points somewhere else is
+        unaffected. A missing file at any step falls through to built-in
+        defaults rather than erroring - the defaults mirror
+        contracts/policy.example.yaml, so no config is a valid configuration.
+        """
+        path = path or os.environ.get("MEMORY_AGENT_POLICY") or default_policy_path()
         if not path or not Path(path).exists():
             return cls()
         raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}

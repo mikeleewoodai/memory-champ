@@ -2,6 +2,13 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+# Python 3.11+ venvs write their own .gitignore, but 3.10 is supported and does
+# not, and an accidentally committed venv is a couple of GB with torch in it.
+.venv/
+venv/
+# setuptools/pip leave these behind whenever a wheel or sdist gets built
+build/
+dist/
 memory.db
 memory.db-*
 policy.yaml

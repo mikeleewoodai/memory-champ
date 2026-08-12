@@ -24,10 +24,23 @@ dependencies = [
 
 [project.optional-dependencies]
 vector = ["sqlite-vec>=0.1.6"]
-embeddings = ["sentence-transformers>=2.2"]
+embeddings = ["sentence-transformers>=2.2"]   # pulls torch, ~2GB
 tokenizer = ["tiktoken>=0.5"]
 server = ["mcp>=1.0"]
 dev = ["pytest>=7", "jsonschema>=4.20"]
+
+# What to install if you have no opinion: everything needed to run as an MCP
+# server with vector recall and exact token counting, and nothing that pulls
+# torch. Semantic recall is the one thing this leaves out - add `embeddings`
+# when lexical overlap stops being good enough, which is a decision you can
+# make later against your own corpus rather than up front.
+recommended = ["sqlite-vec>=0.1.6", "tiktoken>=0.5", "mcp>=1.0"]
+
+# Every runtime extra, torch included. Deliberately does NOT include `dev`:
+# `all` means "all of what it needs to run", not "everything in this file".
+# That distinction has bitten before - `pip install -e ".[all]"` leaves you
+# without pytest and the documented `pytest -q` then has nothing to run - so
+# the test command is spelled `.[all,dev]` everywhere it appears.
 all = ["sqlite-vec>=0.1.6", "sentence-transformers>=2.2", "tiktoken>=0.5", "mcp>=1.0"]
 
 [project.scripts]
@@ -35,8 +48,24 @@ memory-agent = "memory_agent.cli:main"
 memory-agent-daemon = "memory_agent.daemon:main"
 memory-agent-server = "memory_agent.server:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+# contracts/ is read at runtime - store.py applies db/schema.sql and server.py
+# builds its tool list from mcp-tools.json - so it has to travel in the wheel.
+# It stays at the repo root because it is the source of truth humans and
+# verify.py work against; this maps that one directory in as a subpackage so
+# there is still exactly one copy on disk.
+[tool.setuptools]
+package-dir = { "" = "src", "memory_agent.contracts" = "contracts" }
+packages = [
+    "memory_agent",
+    "memory_agent.contracts",
+    "memory_agent.contracts.db",
+    "memory_agent.contracts.schemas",
+]
+
+[tool.setuptools.package-data]
+"memory_agent.contracts" = ["*.json", "*.yaml"]
+"memory_agent.contracts.db" = ["*.sql"]
+"memory_agent.contracts.schemas" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

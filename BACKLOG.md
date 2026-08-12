@@ -55,7 +55,7 @@ Two properties of this specific design raise the stakes:
 
 - **The tool contract should barely change.** Identity belongs in the transport and the storage layer. Signing needed contract changes because a signature is *data the caller supplies*; caller identity is not, and should ride the transport. If adding authn forces changes to `mcp-tools.json`, that is a signal the design went wrong — the same isolation that lets storage move to Postgres without touching the contract (A-2).
 - **Fail closed.** An unrecognised principal gets nothing, not a default scope.
-- **Do not reuse `scope` as the permission unit without checking the hierarchy.** Scopes are dotted (`leewood.crm.builder`), so a grant on `leewood` plausibly implies its children — decide that explicitly rather than letting prefix matching decide it by accident.
+- **Do not reuse `scope` as the permission unit without checking the hierarchy.** Scopes are dotted (`acme.crm.builder`), so a grant on `acme` plausibly implies its children — decide that explicitly rather than letting prefix matching decide it by accident.
 - **Do not fold reviewer identity back into caller identity.** The obvious move once principals exist is to drop signing and let `reviewed_by` be the authenticated principal. Resist it: a session credential proves who is connected *now*, while a signature proves who decided *then* and survives the session, the server, and the database. They answer different questions, and the durable one is the one worth keeping.
 - Revisit whether the work version wants Postgres anyway (A-2, §14). Multi-user and multi-writer tend to arrive together, and Postgres row-level security would do a large part of this work.
 

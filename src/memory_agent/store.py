@@ -14,10 +14,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .approval import rfc3339, utcnow
+from .contracts_path import contract_path
 from .embedding import serialize
 from .errors import IdempotencyConflict, StoreBusy, VectorUnavailable
 
-SCHEMA_PATH = Path(__file__).resolve().parents[2] / "contracts" / "db" / "schema.sql"
+SCHEMA_PATH = contract_path("db", "schema.sql")
 
 # Applied only when sqlite-vec loads. Kept here rather than in schema.sql because
 # schema.sql must stay runnable on a stock SQLite build (see the VECTOR INDEX

@@ -16,42 +16,59 @@ Download it and open it in a browser — GitHub serves `.html` as source rather 
 
 ## Install
 
-```bash
-pip install -e ".[all,dev]"      # or: pip install -e ".[vector,server,tokenizer,dev]" to skip torch
-```
-
-`dev` is what brings in `pytest` and `jsonschema`. `[all]` on its own does not, so include it or the `pytest -q` below has nothing to run.
-
-Only `cryptography` and `PyYAML` are required. Everything else degrades visibly rather than failing: no `sqlite-vec` means keyword-only recall that says so, no `sentence-transformers` means the built-in hashing embedder, no `tiktoken` means a conservative token bound.
-
-## Set up a reviewer key
-
-Approving a learned procedure requires **your** signature. Do this first — the server refuses to start without a reviewer key.
+Two commands. The second one prints the host config you paste in.
 
 ```bash
-memory-agent keygen ~/.memory-agent/approval --id mike --passphrase
+uv tool install "memory-agent[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+memory-agent init
 ```
 
-It prints the exact block to paste into `policy.yaml`. An existing SSH key works too; only the public half goes in the config. The private half never reaches the server.
+Plain pip works the same way, in a venv of your own:
 
-**Use `--passphrase`.** The gate's security claim is that an agent holds the tool but not the key — and that only holds while the key is unreadable to the agent. The usual deployment is an agent with shell access on the same machine as the key, so an unencrypted private key at a predictable path lets it sign its own approvals, which is the exact thing the gate exists to prevent. A passphrase means the key is encrypted at rest and needs you present to use it. `approve` prompts for it when the key turns out to be encrypted.
+```bash
+python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install "memory-agent[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+memory-agent init
+```
 
-## Run it
+`recommended` is vector recall, exact token counting, and the MCP server — everything except semantic embeddings, which pull torch and about 2 GB. Add them when lexical overlap stops being good enough, a call worth making against your own corpus rather than up front:
 
-```jsonc
-// claude_desktop_config.json / .mcp.json
+```bash
+pip install "memory-agent[all]"     # adds sentence-transformers
+```
+
+Only `cryptography`, `PyYAML`, and `bcrypt` are truly required. The rest degrades visibly rather than failing: no `sqlite-vec` means keyword-only recall that says so, no `sentence-transformers` means the built-in hashing embedder, no `tiktoken` means a conservative token bound.
+
+Working on the code instead of using it? `pip install -e ".[all,dev]"` — `dev` is what brings in `pytest` and `jsonschema`, and `[all]` deliberately does not include it, so a bare `.[all]` leaves the `pytest -q` below with nothing to run.
+
+## What `init` does
+
+```
+$ memory-agent init --id ada
+reviewer key: ~/.memory-agent/approval  (created, mode 600, passphrase-protected)
+policy:       ~/.memory-agent/policy.yaml  (written, reviewer already filled in)
+database:     ~/.memory-agent/memory.db  (created on first write)
+
+Add this to your MCP host config — no env var needed, policy.yaml
+is found at the conventional path:
+
 {
   "mcpServers": {
     "memory-champ": {
-      "command": "python",
-      "args": ["-m", "memory_agent.server"],
-      "env": { "MEMORY_AGENT_POLICY": "/path/to/policy.yaml" }
+      "command": "/abs/path/to/.venv/bin/python",
+      "args": ["-m", "memory_agent.server"]
     }
   }
 }
 ```
 
-The key is the server name a host shows you and prefixes its tools with, so it is worth making specific. `memory` collides with the general idea of memory in a host that already talks about remembering things; `memory-champ` names *this* service. Point `command` at the interpreter that has this package installed — a venv's `python`, not the system one.
+Three things that used to be manual: it generates the reviewer key, writes `policy.yaml` with the public key and fingerprint **already substituted in**, and prints the config with `sys.executable` resolved — the interpreter that just ran `init`, which is by construction the one that has the package. Hand-writing that path is the most common way the server ends up unstartable.
+
+The server name is the label a host shows you and prefixes its tools with, so it is worth making specific. `memory` collides with the general idea of memory in a host that already talks about remembering things; `memory-champ` names *this* service. Change it with `--server-name`.
+
+**`init` never regenerates an existing key.** Re-running it is safe and idempotent; `--force` rewrites `policy.yaml` only. Replacing a reviewer key invalidates every signature made with the old one — stored approvals stop verifying and `memory-agent verify` reports them as tampered, which is indistinguishable from an actual attack. Use `keygen --force` if you genuinely mean to.
+
+**It asks for a passphrase by default.** The gate's security claim is that an agent holds the tool but not the key, and that only holds while the key is unreadable to the agent. The usual deployment is an agent with shell access on the same machine as the key, so an unencrypted private key at a predictable path lets it sign its own approvals — the exact thing the gate exists to prevent. `--no-passphrase` exists, and says `UNENCRYPTED` in the output when you use it. An existing SSH key works too; only the public half goes in the config.
 
 Independent mode, on a schedule:
 
@@ -76,7 +93,7 @@ recall  →  act  →  remember  →  reflect
 
 ```bash
 memory-agent review list --scope acme.crm
-memory-agent review approve p_80dcd7f5 --reviewer mike --key ~/.memory-agent/approval
+memory-agent review approve p_80dcd7f5 --reviewer me --key ~/.memory-agent/approval
 memory-agent verify                       # re-check every stored approval
 memory-agent stats --scope acme.crm
 ```
@@ -135,6 +152,10 @@ Only once the bytes are known good does a mismatch mean your canonical payload o
 ## Known limits
 
 - **A-3 / [B-1](BACKLOG.md): no caller authentication.** Reviewer identity is proven; *who is calling* is not. Any orchestration reaching the server can read and write any scope it can name, and `memory_remember` writes are unattributed. Fine for one person on one machine over stdio. **Blocks a work version**, a second user, a network transport, or client data.
-- Signing does not stop an attacker who already has code execution and can read an unencrypted key file. Use `--passphrase` at keygen, set `require_passphrase: true`, or move to a hardware key via `ssh-agent`.
+- Signing does not stop an attacker who already has code execution and can read an unencrypted key file. `init` asks for a passphrase by default and sets `require_passphrase` to match; for more, move to a hardware key via `ssh-agent`.
 - The default `HashingEmbedder` captures lexical overlap only. Install `sentence-transformers` for real semantic recall.
 - Reflection's clustering is deliberately crude (by cycle, by repeated action). It queues proposals rather than committing, which is why that is tolerable — see assumption A-6.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

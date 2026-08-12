@@ -5,10 +5,10 @@ read. The server never sees it. Approving from a chat session is fine because
 the signature, not the caller, is what the server trusts; this command exists so
 producing that signature is one line rather than a chore.
 
-    memory-agent keygen ~/.memory-agent/approval
+    memory-agent init                       # key + policy + host config, once
     memory-agent fingerprint ~/.memory-agent/approval.pub
     memory-agent review list --scope acme.crm
-    memory-agent review approve p_01J9X2 --reviewer mike --key ~/.memory-agent/approval
+    memory-agent review approve p_01J9X2 --reviewer me --key ~/.memory-agent/approval
 """
 
 from __future__ import annotations
@@ -17,10 +17,11 @@ import argparse
 import getpass
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import approval as A
-from .config import Policy
+from .config import Policy, default_home
 from .errors import MemoryAgentError
 from .service import MemoryService
 
@@ -79,34 +80,45 @@ def _load_key(path: str) -> "A.Ed25519PrivateKey":
             ) from None
 
 
-def cmd_keygen(args) -> int:
+def _write_keypair(out: Path, passphrase: bool):
+    """Generate an Ed25519 reviewer key at `out`, returning the private key.
+
+    Shared by `keygen` and `init` so there is exactly one place that decides how
+    a reviewer key is written. Raises SystemExit on a passphrase mismatch rather
+    than returning a status, because every caller's only sane response is to
+    stop.
+    """
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    out = Path(args.path).expanduser()
-    if out.exists() and not args.force:
-        print(f"{out} already exists (use --force to overwrite)", file=sys.stderr)
-        return 1
     # Checked before the passphrase prompt, not after. Failing afterwards asks
     # the user to type a passphrase twice and then throws it away.
-    if args.passphrase:
+    if passphrase:
         _require_bcrypt("Encrypting a private key")
     out.parent.mkdir(parents=True, exist_ok=True)
 
     priv = Ed25519PrivateKey.generate()
     enc = serialization.NoEncryption()
-    if args.passphrase:
+    if passphrase:
         pw = getpass.getpass("passphrase: ").encode()
         if pw != getpass.getpass("confirm: ").encode():
-            print("passphrases did not match", file=sys.stderr)
-            return 1
+            raise SystemExit("passphrases did not match")
         enc = serialization.BestAvailableEncryption(pw)
     out.write_bytes(priv.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH, enc))
     out.chmod(0o600)
+    Path(f"{out}.pub").write_text(A.openssh_public(priv.public_key()) + "\n", encoding="utf-8")
+    return priv
 
+
+def cmd_keygen(args) -> int:
+    out = Path(args.path).expanduser()
+    if out.exists() and not args.force:
+        print(f"{out} already exists (use --force to overwrite)", file=sys.stderr)
+        return 1
+
+    priv = _write_keypair(out, args.passphrase)
     pub_text = A.openssh_public(priv.public_key())
-    Path(f"{out}.pub").write_text(pub_text + "\n", encoding="utf-8")
     print(f"private key: {out}  (mode 600 — this never goes in policy.yaml)")
     print(f"public key:  {out}.pub\n")
     print("Add to policy.yaml under learning.approval.reviewers:\n")
@@ -114,6 +126,98 @@ def cmd_keygen(args) -> int:
     print("        alg: ed25519")
     print(f'        public_key: "{pub_text}"')
     print(f'        key_id: "{A.fingerprint(priv.public_key())}"')
+    return 0
+
+
+POLICY_TEMPLATE = """\
+# memory-agent policy — written by `memory-agent init` on {when}.
+#
+# Only the reviewer key is set here. Every other value falls back to the
+# built-in defaults, which mirror contracts/policy.example.yaml exactly — so a
+# short file like this is a complete configuration, not a stub. Copy that
+# example over this file when you want the full annotated set of knobs.
+#
+# The database lives beside this file: storage.path defaults to ./memory.db and
+# relative paths resolve against the policy file, not the working directory.
+
+schema_version: "1.0"
+
+learning:
+  approval:
+    require_signature: true
+    # Require the passphrase on every approval rather than caching it. Set to
+    # match how the key below was created.
+    require_passphrase: {require_passphrase}
+    reviewers:
+      - id: {reviewer_id}
+        alg: ed25519
+        # Public half only. The private key never appears in this file.
+        public_key: "{public_key}"
+        key_id: "{key_id}"
+        added_at: "{when}"
+"""
+
+
+def _mcp_block(server_name: str = "memory-champ") -> str:
+    """The host config, with this interpreter's absolute path baked in.
+
+    sys.executable is the point: it is the interpreter that just ran init, which
+    is by construction the one with the package installed. Hand-writing this
+    path is the single most common way the server ends up unstartable.
+    """
+    return json.dumps(
+        {"mcpServers": {server_name: {"command": sys.executable,
+                                      "args": ["-m", "memory_agent.server"]}}},
+        indent=2)
+
+
+def cmd_init(args) -> int:
+    """One command from nothing to a running server: key, policy, host config."""
+    home = Path(args.home).expanduser() if args.home else default_home()
+    key_path = home / "approval"
+    policy_path = home / "policy.yaml"
+    passphrase = not args.no_passphrase
+
+    home.mkdir(parents=True, exist_ok=True)
+
+    # A reviewer key is never regenerated implicitly. Replacing it invalidates
+    # every signature ever made with the old one - approvals stop verifying and
+    # `memory-agent verify` starts reporting them as tampered. Keeping it is the
+    # only safe default, and --force is scoped to the policy file for the same
+    # reason: there is no flag here that destroys a key.
+    if key_path.exists():
+        pub_text = Path(f"{key_path}.pub").read_text(encoding="utf-8").strip()
+        pub = A.load_public_key(pub_text)
+        key_id = A.fingerprint(pub)
+        print(f"reviewer key: {key_path}  (already present, kept)")
+    else:
+        if passphrase and not sys.stdin.isatty():
+            print("A passphrase was requested but there is no terminal to prompt on.\n"
+                  "  Run init interactively, or pass --no-passphrase to accept an "
+                  "unencrypted key.", file=sys.stderr)
+            return 1
+        priv = _write_keypair(key_path, passphrase)
+        pub_text = A.openssh_public(priv.public_key())
+        key_id = A.fingerprint(priv.public_key())
+        how = "passphrase-protected" if passphrase else "UNENCRYPTED"
+        print(f"reviewer key: {key_path}  (created, mode 600, {how})")
+
+    if policy_path.exists() and not args.force:
+        print(f"policy:       {policy_path}  (already present, left alone — --force to rewrite)")
+    else:
+        policy_path.write_text(POLICY_TEMPLATE.format(
+            when=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            reviewer_id=args.id,
+            public_key=pub_text,
+            key_id=key_id,
+            require_passphrase=str(passphrase).lower(),
+        ), encoding="utf-8")
+        print(f"policy:       {policy_path}  (written, reviewer already filled in)")
+
+    print(f"database:     {home / 'memory.db'}  (created on first write)")
+    print(f"\nAdd this to your MCP host config — no env var needed, {policy_path.name}\n"
+          f"is found at the conventional path:\n")
+    print(_mcp_block(args.server_name))
     return 0
 
 
@@ -245,6 +349,18 @@ def main(argv: list[str] | None = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--policy", help="path to policy.yaml (or set MEMORY_AGENT_POLICY)")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    i = sub.add_parser(
+        "init", help="set up key, policy, and host config in one step")
+    i.add_argument("--id", default="me", help="your reviewer id")
+    i.add_argument("--home", help=f"runtime dir (default: {default_home()})")
+    i.add_argument("--no-passphrase", action="store_true",
+                   help="write the private key unencrypted (not recommended)")
+    i.add_argument("--server-name", default="memory-champ",
+                   help="name for the MCP server in the printed host config")
+    i.add_argument("--force", action="store_true",
+                   help="rewrite policy.yaml; never touches an existing key")
+    i.set_defaults(func=cmd_init)
 
     k = sub.add_parser("keygen", help="create a reviewer signing key")
     k.add_argument("path", nargs="?", default="~/.memory-agent/approval")

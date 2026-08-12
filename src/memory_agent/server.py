@@ -18,10 +18,11 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from .config import Policy
+from .contracts_path import contract_path
 from .errors import MemoryAgentError
 from .service import MemoryService
 
-CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "mcp-tools.json"
+CONTRACT = contract_path("mcp-tools.json")
 log = logging.getLogger("memory_agent.server")
 
 

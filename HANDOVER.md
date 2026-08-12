@@ -39,33 +39,24 @@ pytest -q -m slow            # + recall latency benchmark
 
 If `verify.py` passes, the contracts are intact. If `pytest` passes, every acceptance criterion in spec §10 holds. Both should be green on a fresh clone.
 
-Only `cryptography` and `PyYAML` are hard requirements. `sqlite-vec`, `sentence-transformers`, `tiktoken`, and `mcp` are optional and each degrades visibly rather than failing. `dev` is not optional for the commands above, though — it is what supplies `pytest` and `jsonschema`, and `[all]` does not include it.
+Only `cryptography`, `PyYAML`, and `bcrypt` are hard requirements. `sqlite-vec`, `sentence-transformers`, `tiktoken`, and `mcp` are optional and each degrades visibly rather than failing. `dev` is not optional for the commands above, though — it is what supplies `pytest` and `jsonschema`, and `[all]` does not include it. Users who are not working on the code want `[recommended]`, which is everything but the torch-sized embeddings extra.
 
 ## Run it
 
 ```bash
-memory-agent keygen ~/.memory-agent/approval --id mike   # do this first
-# paste the printed block into policy.yaml under learning.approval.reviewers
+memory-agent init --id me     # key + policy.yaml + the host config to paste
 ```
 
-```jsonc
-{
-  "mcpServers": {
-    "memory-champ": {
-      "command": "python",
-      "args": ["-m", "memory_agent.server"],
-      "env": { "MEMORY_AGENT_POLICY": "/abs/path/to/policy.yaml" }
-    }
-  }
-}
-```
+That writes `~/.memory-agent/{approval, approval.pub, policy.yaml}` and prints the MCP block with `sys.executable` already resolved. No `MEMORY_AGENT_POLICY` needed: `Policy.load()` falls back to `~/.memory-agent/policy.yaml`, after an explicit path and the env var, both of which still win. Override the directory with `MEMORY_AGENT_HOME`.
 
-Three names are in play and they are not interchangeable: the repo and MCP server are **memory-champ**, the Python package and CLI are **memory_agent** / `memory-agent`, and `contract.server.name` is `memory-agent` too. Only the JSON key above is user-visible — it becomes the tool prefix — so that is the one worth being specific about. `command` must be the interpreter with this package installed.
+`init` will not regenerate an existing key — that would invalidate every signature made with the old one — and `--force` is scoped to `policy.yaml`. `keygen --force` is the explicit way to replace a key.
+
+Three names are in play and they are not interchangeable: the repo and MCP server are **memory-champ**, the Python package and CLI are **memory_agent** / `memory-agent`, and `contract.server.name` is `memory-agent` too. Only the JSON key `init` prints is user-visible — it becomes the tool prefix — so that is the one worth being specific about (`--server-name`).
 
 ```bash
 memory-agent-daemon --once                # independent mode
 memory-agent review list --scope acme.crm # what the agent wants to learn
-memory-agent review approve <id> --reviewer mike --key ~/.memory-agent/approval
+memory-agent review approve <id> --reviewer me --key ~/.memory-agent/approval
 memory-agent verify                       # re-check every stored approval
 memory-agent stats --scope acme.crm
 ```
