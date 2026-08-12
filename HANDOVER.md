@@ -69,7 +69,7 @@ memory-agent stats --scope acme.crm
 4. §13 — the decision log. Every non-obvious choice with the tension behind it
 5. `BACKLOG.md` — B-1, the one thing blocking a work version
 
-## The seven things most likely to trip you up
+## The eight things most likely to trip you up
 
 1. **`content` is the only indexed field.** Nothing else is embedded or keyword-searchable. Writer-side invariant: whatever a future reader needs must appear in `content`, even if it also lives in a structured field. A procedure whose trigger is only in `procedural_attrs.trigger_text` will not be found.
 
@@ -96,6 +96,22 @@ memory-agent stats --scope acme.crm
    `store.add_observation`, so nobody noticed that nothing in `src/` wrote that
    table at all. When adding a test, ask which seam it crosses — internals were
    never the part that failed.
+
+8. **`contracts/` has to travel in the wheel, and the tests cannot see whether
+   it does.** `store.py` applies `contracts/db/schema.sql` and `server.py`
+   builds its tool list from `contracts/mcp-tools.json`. Both once resolved
+   `Path(__file__).parents[2] / "contracts"` — the repo root. That is correct
+   from a checkout and wrong from `site-packages`, where it landed on
+   `Lib/contracts` and the first `Store()` raised `FileNotFoundError`. So
+   `pip install git+…` had never produced a working package; only editable
+   installs worked, and every test runs from the checkout where the broken path
+   happens to be the right one. Same shape as item 7, one layer out: the
+   environment under test was not the environment that ships. `contracts_path.py`
+   now resolves the packaged copy first and the checkout second, and
+   `pyproject.toml` maps the directory in as `memory_agent.contracts`. If you
+   add a runtime read of `contracts/`, use `contract_path()`; if you touch the
+   packaging block, `test_runtime_contracts_are_declared_as_package_data` is
+   what stops the wheel silently shedding those files again.
 
 ## Decisions already made — don't re-litigate without reason
 
