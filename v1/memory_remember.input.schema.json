@@ -1,0 +1,265 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_remember.input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "episodic"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "required": [
+          "episodic"
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "confidence": {
+      "$ref": "memory-envelope.schema.json#/$defs/unit_interval"
+    },
+    "content": {
+      "description": "The canonical surface form. This is the only field that gets embedded and keyword-indexed, so everything a future reader needs must appear here \u2014 not only in payload or the structured fields.",
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "episodic": {
+      "additionalProperties": false,
+      "description": "Required when type is episodic.",
+      "properties": {
+        "action": {
+          "additionalProperties": false,
+          "properties": {
+            "class": {
+              "description": "One of: `reasoning`, `retrieval`, `learning`, `grounding.digital`, `grounding.dialogue`, `grounding.physical`.",
+              "enum": [
+                "reasoning",
+                "retrieval",
+                "learning",
+                "grounding.digital",
+                "grounding.dialogue",
+                "grounding.physical"
+              ],
+              "type": "string"
+            },
+            "input": {
+              "type": "object"
+            },
+            "name": {
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          "required": [
+            "class",
+            "name"
+          ],
+          "type": "object"
+        },
+        "cycle_id": {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        "duration_ms": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "maxLength": 255,
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "goal": {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "observation": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "outcome": {
+          "description": "One of: `success`, `failure`, `partial`, `abandoned`, `unknown`.",
+          "enum": [
+            "success",
+            "failure",
+            "partial",
+            "abandoned",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "reward": {
+          "oneOf": [
+            {
+              "maximum": 1,
+              "minimum": -1,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "session_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string"
+        },
+        "step_no": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "session_id",
+        "cycle_id",
+        "step_no"
+      ],
+      "type": "object"
+    },
+    "expires_at": {
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "idempotency_key": {
+      "maxLength": 255,
+      "minLength": 1,
+      "type": "string"
+    },
+    "importance": {
+      "$ref": "memory-envelope.schema.json#/$defs/unit_interval"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "provenance": {
+      "$ref": "memory-envelope.schema.json#/$defs/provenance"
+    },
+    "scope": {
+      "$ref": "memory-envelope.schema.json#/$defs/scope"
+    },
+    "semantic": {
+      "additionalProperties": false,
+      "dependentRequired": {
+        "predicate": [
+          "subject"
+        ],
+        "subject": [
+          "predicate"
+        ]
+      },
+      "description": "Optional refinement when type is semantic. Filling subject/predicate/object makes contradiction detection mechanical instead of best-effort, so it is worth doing.",
+      "properties": {
+        "object": {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "predicate": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "sensitivity": {
+          "description": "Marking a record pii or secret keeps it out of context blocks by default and makes it findable by a redaction sweep. Mark honestly \u2014 an unmarked secret is one nobody can clean up.",
+          "enum": [
+            "none",
+            "pii",
+            "secret"
+          ]
+        },
+        "subject": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "valid_from": {
+          "oneOf": [
+            {
+              "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "valid_to": {
+          "oneOf": [
+            {
+              "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "volatility": {
+          "description": "One of: `stable`, `slow`, `volatile`.",
+          "enum": [
+            "stable",
+            "slow",
+            "volatile"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "supersedes": {
+      "description": "Mark an existing record superseded by this one, atomically. Use this rather than forget-then-write: it preserves the chain.",
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "type": {
+      "description": "Only these two. 'procedural' is rejected with error code PROCEDURAL_WRITE_REQUIRES_PROPOSAL.",
+      "enum": [
+        "episodic",
+        "semantic"
+      ]
+    }
+  },
+  "required": [
+    "scope",
+    "type",
+    "content"
+  ],
+  "type": "object"
+}

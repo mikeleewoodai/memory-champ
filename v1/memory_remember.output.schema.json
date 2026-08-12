@@ -1,0 +1,71 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_remember.output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "contradictions_detected": {
+      "description": "Existing active records this write conflicts with. Reported, never auto-resolved.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "description": "One of: `triple`, `semantic`.",
+            "enum": [
+              "triple",
+              "semantic"
+            ],
+            "type": "string"
+          },
+          "existing_content": {
+            "type": "string"
+          },
+          "record_id": {
+            "$ref": "memory-envelope.schema.json#/$defs/uuid"
+          }
+        },
+        "required": [
+          "record_id",
+          "basis"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "created": {
+      "description": "False when an idempotency key matched and the existing record was returned instead.",
+      "type": "boolean"
+    },
+    "deduped": {
+      "type": "boolean"
+    },
+    "embedded": {
+      "description": "False when the record was stored but not yet vectorised, e.g. the embedder was unavailable. It is still keyword-recallable and the daemon will embed it later.",
+      "type": "boolean"
+    },
+    "record_id": {
+      "$ref": "memory-envelope.schema.json#/$defs/uuid"
+    },
+    "superseded_record_id": {
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "record_id",
+    "created",
+    "deduped"
+  ],
+  "type": "object"
+}

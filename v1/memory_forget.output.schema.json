@@ -1,0 +1,70 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_forget.output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "aborted": {
+      "type": "boolean"
+    },
+    "aborted_reason": {
+      "oneOf": [
+        {
+          "enum": [
+            "exceeds_max_records",
+            "confirm_required",
+            "scope_empty"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "affected_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "affected_ids": {
+      "items": {
+        "$ref": "memory-envelope.schema.json#/$defs/uuid"
+      },
+      "maxItems": 1000,
+      "type": "array"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "matched_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "mode": {
+      "description": "One of: `tombstone`, `redact`, `hard_delete`.",
+      "enum": [
+        "tombstone",
+        "redact",
+        "hard_delete"
+      ],
+      "type": "string"
+    },
+    "recoverable_until": {
+      "description": "For tombstone mode, when the record becomes eligible for permanent removal. Null for hard_delete \u2014 nothing to recover.",
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "mode",
+    "dry_run",
+    "matched_count",
+    "affected_count",
+    "aborted"
+  ],
+  "type": "object"
+}

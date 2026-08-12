@@ -1,0 +1,161 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/episodic-record.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "$ref": "memory-envelope.schema.json#/$defs/envelope"
+    }
+  ],
+  "description": "CoALA episodic memory: what happened. One record per step of one decision cycle. Ordered by the (session_id, cycle_id, step_no) triple, a run's full trajectory can be replayed exactly \u2014 which is what lets a crashed or retried loop recover rather than start cold.",
+  "properties": {
+    "action": {
+      "description": "The action taken. In CoALA terms this may be internal (reasoning, retrieval, learning) or external (grounding) \u2014 the memory agent records both but only ever performs internal ones itself.",
+      "properties": {
+        "class": {
+          "description": "CoALA action taxonomy. Grounding subtypes are recorded for hosts that perform them; the memory agent itself emits only internal actions.",
+          "enum": [
+            "reasoning",
+            "retrieval",
+            "learning",
+            "grounding.digital",
+            "grounding.dialogue",
+            "grounding.physical"
+          ]
+        },
+        "input": {
+          "description": "Arguments the action was called with. Redacted in place when memory_forget runs in redact mode.",
+          "type": "object"
+        },
+        "name": {
+          "description": "Concrete action or tool name, e.g. 'web_search' or 'memory_recall'.",
+          "maxLength": 255,
+          "type": "string"
+        }
+      },
+      "required": [
+        "class",
+        "name"
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    "cycle_id": {
+      "$ref": "memory-envelope.schema.json#/$defs/uuid",
+      "description": "One CoALA decision cycle. Assigned by memory_open_cycle, or synthesised per-write when a host uses memory_remember without cycles."
+    },
+    "duration_ms": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "error": {
+      "description": "Structured failure detail when outcome is 'failure'. Repeated identical errors across cycles are the strongest signal a procedural fix is needed.",
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "maxLength": 255,
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object",
+          "unevaluatedProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "goal": {
+      "description": "What the agent was trying to achieve at this step. Copied down from the cycle so a single record is interpretable on its own.",
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "observation": {
+      "description": "What came back. Written BEFORE the host proceeds, so a crash mid-cycle leaves evidence rather than a hole.",
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "outcome": {
+      "default": "unknown",
+      "description": "Result of the step. 'abandoned' is set by the daemon when it reaps a cycle that was opened and never closed.",
+      "enum": [
+        "success",
+        "failure",
+        "partial",
+        "abandoned",
+        "unknown"
+      ]
+    },
+    "parent_cycle_id": {
+      "description": "Set when a subagent's cycle nests inside a parent orchestration's cycle. Lets a fan-out tree be reconstructed.",
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reward": {
+      "description": "Optional scalar signal, -1 (harmful) to 1 (ideal). Reflection weights high-reward episodes more heavily when distilling semantic facts and procedural candidates.",
+      "oneOf": [
+        {
+          "maximum": 1,
+          "minimum": -1,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "session_id": {
+      "description": "Groups every cycle belonging to one run of a host orchestration. Supplied by the host; the memory agent never invents it.",
+      "maxLength": 255,
+      "minLength": 1,
+      "type": "string"
+    },
+    "step_no": {
+      "description": "Monotonic step index within the cycle, starting at 0. Two records in one cycle never share a step_no.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "tokens": {
+      "description": "Token accounting for the step, when the host tracks it. Enables cost analysis over a trajectory.",
+      "properties": {
+        "input": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    "type": {
+      "const": "episodic"
+    }
+  },
+  "required": [
+    "session_id",
+    "cycle_id",
+    "step_no"
+  ],
+  "title": "Episodic Record",
+  "type": "object",
+  "unevaluatedProperties": false
+}

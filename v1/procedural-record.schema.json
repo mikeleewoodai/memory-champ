@@ -1,0 +1,255 @@
+{
+  "$defs": {
+    "approval_signature": {
+      "description": "Proof that a specific human made this decision about this exact candidate.\n\nThe signed payload is stored VERBATIM rather than reconstructed at verification time. That is the whole point: years later, with nothing but this record and the reviewer's public key, anyone can re-verify the decision offline. Reconstructing the payload from current field values would instead prove only that the fields are self-consistent \u2014 which is not evidence of anything.",
+      "properties": {
+        "alg": {
+          "const": "ed25519",
+          "description": "Only Ed25519 in v1. Named explicitly so a future algorithm can be added without ambiguity about how old signatures were made."
+        },
+        "candidate_sha256": {
+          "description": "SHA256 of the candidate at signing time, lowercase hex. Also appears inside signed_payload; duplicated here so a tamper check is an index lookup rather than a string parse. If this stops matching the stored record, the procedure was altered after approval and must be treated as unapproved.\n\nExactly what is hashed, because a verifier that disagrees here rejects valid approvals: the proposal's `candidate` object serialised as UTF-8 JSON with keys sorted lexicographically, no insignificant whitespace (`,` and `:` separators), and non-ASCII characters left unescaped. In Python: `json.dumps(candidate, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()`. The hash covers the candidate only \u2014 never the envelope fields the server assigns, which would make it unreproducible.\n\nThe covered keys are exactly `content`, `trigger`, `preconditions`, `steps`, `success_signal` and `failure_signal`. `content` is covered deliberately and must stay covered: it is the only indexed field and the text `memory_recall` returns, so it is what an agent actually follows. A signature that omitted it would let an approved procedure's instructions be rewritten without invalidating the signature, leaving `verify` reporting success on a procedure nobody approved. Not yet covered: `supersedes` and `evidence_record_ids`.",
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "key_id": {
+          "description": "SHA256 fingerprint of the signing public key, OpenSSH style: 'SHA256:' + unpadded base64 of the digest of the 32 raw public key bytes. Identifies which reviewer key to verify against, and survives key rotation \u2014 a retired key stays in policy so its old signatures keep verifying.",
+          "pattern": "^SHA256:[A-Za-z0-9+/]{43}$",
+          "type": "string"
+        },
+        "sig": {
+          "description": "Base64 of the 64-byte Ed25519 signature over signed_payload.",
+          "pattern": "^[A-Za-z0-9+/]{86}==$",
+          "type": "string"
+        },
+        "signed_payload": {
+          "description": "The exact UTF-8 byte string that was signed, stored as-is. Fixed-field and newline-delimited, never JSON \u2014 canonical JSON is a footgun (key order, unicode escaping, number formatting) and a verifier that has to re-serialise can disagree with the signer.\n\nFormat, in this order, each line terminated by \\n:\n  memory-agent-approval-v2\n  scope: <scope>\n  proposal: <proposal_id>\n  candidate_sha256: <hex>\n  decision: approve|reject\n  reviewer: <reviewer_id>\n  nonce: <server-issued nonce>\n  expires: <RFC3339>\n",
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "verified_at": {
+          "description": "When the server last checked the signature. Re-verification is cheap and the daemon does it on a sweep, so a record whose content drifted from its signature gets caught rather than trusted indefinitely.",
+          "oneOf": [
+            {
+              "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "alg",
+        "key_id",
+        "signed_payload",
+        "sig",
+        "candidate_sha256"
+      ],
+      "title": "Approval Signature",
+      "type": "object",
+      "unevaluatedProperties": false
+    }
+  },
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/procedural-record.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "$ref": "memory-envelope.schema.json#/$defs/envelope"
+    }
+  ],
+  "description": "CoALA procedural memory: how to do something. Learned routines, playbooks, and heuristics.\n\nDeliberate narrowing of CoALA: the paper's procedural memory includes the agent's own code, and the authors flag rewriting it as the riskiest learning modality. This agent stores procedures as DATA that a host reads and chooses to follow \u2014 never as executable code, and never applied to itself. Every procedural write is additionally gated behind human approval before it becomes retrievable.",
+  "properties": {
+    "approval": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "approved",
+                  "rejected"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reviewed_at": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "reviewed_by": {
+                "description": "Narrowed from the nullable form above: a decided record must name a reviewer. Requiring only presence would let `reviewed_by: null` through, which is an approval nobody made.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "reviewed_by",
+              "reviewed_at",
+              "signature"
+            ]
+          }
+        }
+      ],
+      "description": "The gate. A procedural record is invisible to recall until state is 'approved'.\n\n`reviewed_by` is a claim, not proof \u2014 a string any caller could write. The proof is `signature`: an Ed25519 signature by a key the reviewer holds and the server never sees the private half of. An agent cannot manufacture one, which is what turns the gate from a convention into a control. It is required whenever state is 'approved' or 'rejected'.",
+      "properties": {
+        "rationale": {
+          "description": "Why it was approved or rejected. Rejections are kept, not deleted: a rejected candidate that keeps being re-proposed is a signal about the proposer.",
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "reviewed_at": {
+          "oneOf": [
+            {
+              "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewed_by": {
+          "description": "Identifier of the human who decided. Must match the `reviewer:` line inside the signed payload, and must be absent while state is 'pending'.",
+          "oneOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signature": {
+          "$ref": "#/$defs/approval_signature"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    "failure_signal": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "preconditions": {
+      "description": "What must already be true before the steps are safe to run. A host that cannot verify a precondition should not run the procedure.",
+      "items": {
+        "maxLength": 1024,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "steps": {
+      "description": "Ordered instructions in natural language. Instructions, not code: the host decides how to carry each one out.",
+      "items": {
+        "properties": {
+          "instruction": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "n": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "on_failure": {
+            "description": "What to do if this step fails, e.g. 'skip', 'abort', or a natural-language fallback.",
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "tool": {
+            "description": "Suggested tool, if the procedure was learned in a context that had one. Advisory only \u2014 the host is not obliged to have it.",
+            "maxLength": 255,
+            "type": "string"
+          }
+        },
+        "required": [
+          "n",
+          "instruction"
+        ],
+        "type": "object",
+        "unevaluatedProperties": false
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "success_signal": {
+      "description": "How a host knows the procedure worked. Without this the usage counters below are unfalsifiable.",
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "supersedes": {
+      "description": "Prior procedure this one replaces. Revision is normal; the old version is marked superseded rather than deleted so a regression can be traced.",
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "trigger": {
+      "description": "The condition under which this procedure applies. Recall matches a query against this first \u2014 a procedure retrieved in the wrong situation is worse than no procedure at all.",
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "procedural"
+    },
+    "usage": {
+      "description": "Whether the learned procedure actually works in practice. A procedure with many invocations and few successes should be revised or retired \u2014 this is the feedback loop that keeps procedural memory honest.",
+      "properties": {
+        "invocations": {
+          "default": 0,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last_used_at": {
+          "oneOf": [
+            {
+              "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "successes": {
+          "default": 0,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "unevaluatedProperties": false
+    }
+  },
+  "required": [
+    "trigger",
+    "steps",
+    "approval"
+  ],
+  "title": "Procedural Record",
+  "type": "object",
+  "unevaluatedProperties": false
+}

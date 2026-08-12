@@ -1,0 +1,182 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_review_proposals.output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "One of: `list`, `approve`, `reject`.",
+      "enum": [
+        "list",
+        "approve",
+        "reject"
+      ],
+      "type": "string"
+    },
+    "approved": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "key_id": {
+            "type": "string"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "record_id": {
+            "$ref": "memory-envelope.schema.json#/$defs/uuid"
+          },
+          "signature_verified": {
+            "const": true,
+            "description": "Always true on a returned approval \u2014 an unverified one is an error, not a result. Present so the caller sees the check happened rather than inferring it."
+          }
+        },
+        "required": [
+          "proposal_id",
+          "record_id",
+          "signature_verified"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "proposals": {
+      "description": "Populated for list. Includes the full candidate so a reviewer can judge without a second call.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "type": "object"
+          },
+          "candidate_sha256": {
+            "description": "Hash of the candidate exactly as shown here. Also embedded in signing_payload, so a signature commits to this specific content.",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "challenge_expires_at": {
+            "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+          },
+          "evidence_record_ids": {
+            "items": {
+              "$ref": "memory-envelope.schema.json#/$defs/uuid"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "description": "One of: `procedural`, `semantic`, `forget`, `supersede`.",
+            "enum": [
+              "procedural",
+              "semantic",
+              "forget",
+              "supersede"
+            ],
+            "type": "string"
+          },
+          "nonce": {
+            "description": "Single-use, embedded in signing_payload. Consumed by the matching approve/reject; a second use is refused and recorded rather than ignored.",
+            "type": "string"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "proposed_at": {
+            "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+          },
+          "proposed_by": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "memory-envelope.schema.json#/$defs/scope"
+          },
+          "signing_payload": {
+            "description": "The exact UTF-8 bytes to sign in order to APPROVE this proposal. Fixed-field, newline-delimited, never JSON. Sign these bytes unmodified and send them back verbatim.\n\nTo REJECT, change the single `decision:` line from 'approve' to 'reject' and sign that. Everything else stays identical \u2014 the nonce covers both outcomes, so one challenge authorises one decision either way.",
+            "type": "string"
+          },
+          "source": {
+            "description": "One of: `host`, `daemon`, `human`, `import`.",
+            "enum": [
+              "host",
+              "daemon",
+              "human",
+              "import"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "description": "One of: `pending`, `approved`, `rejected`, `expired`.",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "expired"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "kind",
+          "state",
+          "candidate",
+          "proposed_by",
+          "proposed_at"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "queue_depth": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "rejected": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "skipped": {
+      "description": "Proposals that could not be decided. Reported rather than erroring, so a partial batch still succeeds \u2014 but note that every signature-related reason means nothing changed for that proposal.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "already_decided",
+              "expired",
+              "not_found",
+              "signature_missing",
+              "signature_invalid",
+              "unknown_key",
+              "revoked_key",
+              "challenge_expired",
+              "challenge_already_used",
+              "candidate_changed",
+              "reviewer_mismatch",
+              "decision_mismatch"
+            ]
+          }
+        },
+        "required": [
+          "proposal_id",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "type": "object"
+}

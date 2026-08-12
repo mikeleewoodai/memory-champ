@@ -1,0 +1,9 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_recall.output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "$ref": "recall-response.schema.json"
+    }
+  ]
+}

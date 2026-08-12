@@ -1,0 +1,262 @@
+{
+  "$defs": {
+    "score_breakdown": {
+      "description": "Every term that produced the total, so retrieval is tunable rather than a black box.",
+      "properties": {
+        "importance": {
+          "$ref": "memory-envelope.schema.json#/$defs/unit_interval"
+        },
+        "keyword_rank": {
+          "description": "BM25 rank from FTS5, or null when the record was matched only by vector.",
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recency": {
+          "description": "exp(-lambda * hours_since_last_access), lambda derived from the configured half-life.",
+          "type": "number"
+        },
+        "relevance": {
+          "description": "Fused relevance: reciprocal-rank fusion of the vector and keyword rankings.",
+          "type": "number"
+        },
+        "total": {
+          "type": "number"
+        },
+        "vector_similarity": {
+          "description": "Raw cosine similarity, or null when the vector path was unavailable or the strategy was keyword-only.",
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "total"
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    "scored_record": {
+      "properties": {
+        "in_context_block": {
+          "description": "Whether this record made it into context_block, or was returned as structure only.",
+          "type": "boolean"
+        },
+        "rank": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "record": {
+          "description": "The full record, matching whichever of the three record schemas its type indicates.",
+          "oneOf": [
+            {
+              "$ref": "episodic-record.schema.json"
+            },
+            {
+              "$ref": "semantic-record.schema.json"
+            },
+            {
+              "$ref": "procedural-record.schema.json"
+            }
+          ]
+        },
+        "score": {
+          "$ref": "#/$defs/score_breakdown"
+        }
+      },
+      "required": [
+        "rank",
+        "record",
+        "score"
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    "weights": {
+      "properties": {
+        "importance": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "recency": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "recency_half_life_hours": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "relevance": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object",
+      "unevaluatedProperties": false
+    }
+  },
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/recall-response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "What memory_recall returns.\n\nTwo consumers, one response. `records` is for a host that wants to reason over structure. `context_block` is for a host that just wants text to paste into a prompt \u2014 pre-formatted, token-bounded, and never exceeding the caller's max_tokens. The second is what makes this safe to call inside a loop: memory can never quietly eat the host's context window.",
+  "properties": {
+    "context_block": {
+      "description": "Ready-to-inject text rendering of the records that fit the budget. Records marked sensitivity='pii' or 'secret' are excluded unless the caller explicitly opted in. Empty string when nothing was recalled \u2014 never a placeholder sentence, which a model would otherwise treat as a fact.",
+      "type": "string"
+    },
+    "contradictions": {
+      "description": "Pairs among the returned records that are in tension. Surfaced rather than resolved: the memory agent will not pick a winner on the host's behalf.",
+      "items": {
+        "properties": {
+          "a": {
+            "$ref": "memory-envelope.schema.json#/$defs/uuid"
+          },
+          "b": {
+            "$ref": "memory-envelope.schema.json#/$defs/uuid"
+          },
+          "note": {
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "type": "object",
+        "unevaluatedProperties": false
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "degraded": {
+      "description": "Set when recall ran without full capability \u2014 e.g. the vector extension failed to load and the query fell back to keyword-only. The result is still usable, but a host must not read a thin result as 'nothing is known'.",
+      "oneOf": [
+        {
+          "properties": {
+            "detail": {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "vector_unavailable",
+                "embedder_unavailable",
+                "index_rebuilding",
+                "timeout"
+              ]
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object",
+          "unevaluatedProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "excluded_sensitive_count": {
+      "description": "How many records were withheld from context_block on sensitivity grounds. Reported so redaction is visible rather than silent.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "latency_ms": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "omitted_count": {
+      "description": "How many qualifying records did not fit. A host seeing a large number here should either raise max_tokens or narrow its query \u2014 not assume it saw everything.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "query_echo": {
+      "description": "The effective query after defaults and policy were applied. Echoed back because a host that gets surprising results needs to see what was actually run, not what it thinks it asked.",
+      "properties": {
+        "k": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_tokens": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "memory-envelope.schema.json#/$defs/scope"
+        },
+        "strategy": {
+          "enum": [
+            "hybrid",
+            "semantic",
+            "keyword",
+            "recent"
+          ]
+        },
+        "types": {
+          "items": {
+            "enum": [
+              "episodic",
+              "semantic",
+              "procedural"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "weights": {
+          "$ref": "#/$defs/weights"
+        }
+      },
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    "records": {
+      "description": "Ranked results, best first. Each entry wraps the record with the score that got it there, so a host can tune retrieval without guessing.",
+      "items": {
+        "$ref": "#/$defs/scored_record"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "type": "string"
+    },
+    "token_count": {
+      "description": "Actual token count of context_block, measured not estimated. Guaranteed <= the caller's max_tokens.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "truncated": {
+      "description": "True when the token budget cut off records that otherwise qualified.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "records",
+    "context_block",
+    "token_count",
+    "truncated"
+  ],
+  "title": "Recall Response",
+  "type": "object",
+  "unevaluatedProperties": false
+}

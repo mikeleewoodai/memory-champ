@@ -1,0 +1,59 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_close_cycle.input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cycle_id": {
+      "$ref": "memory-envelope.schema.json#/$defs/uuid"
+    },
+    "importance": {
+      "$ref": "memory-envelope.schema.json#/$defs/unit_interval"
+    },
+    "outcome": {
+      "description": "One of: `success`, `failure`, `partial`, `abandoned`, `unknown`.",
+      "enum": [
+        "success",
+        "failure",
+        "partial",
+        "abandoned",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "promote_observations": {
+      "default": false,
+      "description": "Write one episodic record per observation in addition to the summary. Off by default: most loops produce far more steps than are worth keeping, and the summary usually carries the signal.",
+      "type": "boolean"
+    },
+    "reward": {
+      "description": "Optional scalar, -1 to 1. Reflection weights high-reward cycles more heavily when distilling facts and promoting procedures.",
+      "oneOf": [
+        {
+          "maximum": 1,
+          "minimum": -1,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "summary": {
+      "description": "One-paragraph account of what happened. Stored as a single episodic record and embedded, so future recalls can find the cycle by what it was about rather than by id.",
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    }
+  },
+  "required": [
+    "cycle_id",
+    "outcome"
+  ],
+  "type": "object"
+}

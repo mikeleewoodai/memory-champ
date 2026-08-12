@@ -1,0 +1,214 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_stats.output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "counts": {
+      "additionalProperties": false,
+      "properties": {
+        "by_status": {
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "redacted": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "superseded": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "tombstoned": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "by_type": {
+          "additionalProperties": false,
+          "properties": {
+            "episodic": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "procedural": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "semantic": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "cycles": {
+      "additionalProperties": false,
+      "properties": {
+        "abandoned_last_7d": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "open": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stale": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "embedding": {
+      "additionalProperties": false,
+      "properties": {
+        "coverage": {
+          "description": "Fraction of active records with a current vector. Below 1.0 means part of the store is keyword-recallable only.",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "dimensions": {
+          "type": "integer"
+        },
+        "model": {
+          "type": "string"
+        },
+        "pending_reembed": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "health": {
+      "additionalProperties": false,
+      "properties": {
+        "db_size_bytes": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failing_procedures": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last_daemon_run_at": {
+          "oneOf": [
+            {
+              "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sensitive_records": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unresolved_contradictions": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "queue": {
+      "additionalProperties": false,
+      "properties": {
+        "oldest_pending_at": {
+          "oneOf": [
+            {
+              "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pending_proposals": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scopes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "type": "string"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope",
+          "total"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "top_accessed": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "access_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "content": {
+            "type": "string"
+          },
+          "record_id": {
+            "$ref": "memory-envelope.schema.json#/$defs/uuid"
+          }
+        },
+        "required": [
+          "record_id",
+          "access_count"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "warnings": {
+      "description": "Plain-language health problems, e.g. 'vector extension not loaded; recall is keyword-only' or '41 proposals pending, oldest 62 days'.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "counts",
+    "warnings"
+  ],
+  "type": "object"
+}

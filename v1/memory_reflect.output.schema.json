@@ -1,0 +1,121 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_reflect.output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "capped": {
+      "description": "True when max_episodes cut the window short. A capped reflect has not seen everything and must not be reported as complete.",
+      "type": "boolean"
+    },
+    "contradictions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "memory-envelope.schema.json#/$defs/uuid"
+          },
+          "b": {
+            "$ref": "memory-envelope.schema.json#/$defs/uuid"
+          },
+          "basis": {
+            "description": "One of: `triple`, `semantic`.",
+            "enum": [
+              "triple",
+              "semantic"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "a",
+          "b",
+          "basis"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "duration_ms": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "episodes_examined": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "importance_revised": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "proposals_created": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "description": "One of: `procedural`, `semantic`, `forget`, `supersede`.",
+            "enum": [
+              "procedural",
+              "semantic",
+              "forget",
+              "supersede"
+            ],
+            "type": "string"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "kind",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "semantic_written": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "derived_from": {
+            "items": {
+              "$ref": "memory-envelope.schema.json#/$defs/uuid"
+            },
+            "type": "array"
+          },
+          "record_id": {
+            "$ref": "memory-envelope.schema.json#/$defs/uuid"
+          }
+        },
+        "required": [
+          "record_id",
+          "content",
+          "derived_from"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "episodes_examined",
+    "capped",
+    "semantic_written",
+    "proposals_created",
+    "contradictions"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,125 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_propose_procedure.input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "content": {
+      "description": "Searchable summary of the procedure. Must restate the trigger, since content is the only embedded and keyword-indexed field.",
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "dedupe_key": {
+      "maxLength": 255,
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence_record_ids": {
+      "description": "Episodes that motivated the proposal. A reviewer can read them to check the pattern is real.",
+      "items": {
+        "$ref": "memory-envelope.schema.json#/$defs/uuid"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "failure_signal": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "preconditions": {
+      "items": {
+        "maxLength": 1024,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "proposed_by": {
+      "maxLength": 255,
+      "minLength": 1,
+      "type": "string"
+    },
+    "rationale": {
+      "description": "Why this should be learned, with evidence. A reviewer approving on faith is not a gate.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "memory-envelope.schema.json#/$defs/scope"
+    },
+    "source": {
+      "default": "host",
+      "description": "One of: `host`, `daemon`, `human`, `import`.",
+      "enum": [
+        "host",
+        "daemon",
+        "human",
+        "import"
+      ],
+      "type": "string"
+    },
+    "steps": {
+      "description": "Natural-language instructions, not code. The host decides how to carry each one out.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "instruction": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "n": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "on_failure": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "tool": {
+            "maxLength": 255,
+            "type": "string"
+          }
+        },
+        "required": [
+          "n",
+          "instruction"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "success_signal": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "supersedes": {
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "trigger": {
+      "description": "When this procedure applies. Matched first at recall time \u2014 a procedure retrieved in the wrong situation is worse than no procedure at all.",
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "scope",
+    "content",
+    "trigger",
+    "steps",
+    "rationale",
+    "proposed_by"
+  ],
+  "type": "object"
+}

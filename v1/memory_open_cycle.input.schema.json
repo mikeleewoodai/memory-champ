@@ -1,0 +1,96 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_open_cycle.input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "goal": {
+      "description": "What this cycle is trying to achieve, in the host's own words. Also the basis of the loop signature.",
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Reopening with the same key returns the existing open cycle instead of creating a second one. Use the host's own loop iteration id.",
+      "maxLength": 255,
+      "minLength": 1,
+      "type": "string"
+    },
+    "parent_cycle_id": {
+      "description": "Set when this cycle runs inside another agent's cycle, e.g. a subagent in a fan-out. Lets the whole tree be reconstructed later.",
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "preload": {
+      "additionalProperties": false,
+      "description": "Run a recall against the goal and return it with the handle, saving a round trip. Defaults to on: a cycle that opens without context is a cycle that starts cold.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "k": {
+          "default": 12,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_tokens": {
+          "default": 1500,
+          "maximum": 32000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "description": "Overrides the goal as the recall query when the goal is a poor search string.",
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "types": {
+          "default": [
+            "semantic",
+            "procedural"
+          ],
+          "items": {
+            "description": "One of: `episodic`, `semantic`, `procedural`.",
+            "enum": [
+              "episodic",
+              "semantic",
+              "procedural"
+            ],
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "type": "object"
+    },
+    "scope": {
+      "$ref": "memory-envelope.schema.json#/$defs/scope"
+    },
+    "session_id": {
+      "description": "Groups every cycle of one run. Supplied by the host \u2014 the server never invents it, because only the host knows where its run boundaries are.",
+      "maxLength": 255,
+      "minLength": 1,
+      "type": "string"
+    },
+    "ttl_hours": {
+      "default": 24,
+      "exclusiveMinimum": 0,
+      "maximum": 720,
+      "type": "number"
+    }
+  },
+  "required": [
+    "scope",
+    "session_id",
+    "goal"
+  ],
+  "type": "object"
+}

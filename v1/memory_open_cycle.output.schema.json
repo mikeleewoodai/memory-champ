@@ -1,0 +1,95 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_open_cycle.output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cycle_id": {
+      "$ref": "memory-envelope.schema.json#/$defs/uuid"
+    },
+    "expires_at": {
+      "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+    },
+    "loop_warning": {
+      "description": "Non-null when this cycle looks like a repeat of recent ones with no change in outcome.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "advice": {
+              "description": "Plain-language suggestion, e.g. 'this goal has failed 3 times with the same error; change approach or escalate'.",
+              "type": "string"
+            },
+            "last_outcomes": {
+              "items": {
+                "description": "One of: `success`, `failure`, `partial`, `abandoned`, `unknown`.",
+                "enum": [
+                  "success",
+                  "failure",
+                  "partial",
+                  "abandoned",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "loop_signature": {
+              "type": "string"
+            },
+            "repeats": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "similar_cycle_ids": {
+              "items": {
+                "$ref": "memory-envelope.schema.json#/$defs/uuid"
+              },
+              "type": "array"
+            },
+            "window_minutes": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "loop_signature",
+            "repeats",
+            "advice"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "opened_at": {
+      "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+    },
+    "preloaded": {
+      "oneOf": [
+        {
+          "$ref": "recall-response.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reused": {
+      "description": "True when an idempotency key matched an already-open cycle and no new one was created.",
+      "type": "boolean"
+    },
+    "session_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "cycle_id",
+    "session_id",
+    "opened_at",
+    "expires_at",
+    "loop_warning"
+  ],
+  "type": "object"
+}

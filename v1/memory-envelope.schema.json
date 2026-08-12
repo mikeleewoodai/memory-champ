@@ -1,0 +1,210 @@
+{
+  "$defs": {
+    "envelope": {
+      "properties": {
+        "access_count": {
+          "default": 0,
+          "description": "Number of recalls that have returned this record. A record with many accesses and no supersession is load-bearing; a record with zero after its decay window is a forgetting candidate.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "confidence": {
+          "$ref": "#/$defs/unit_interval",
+          "default": 0.5,
+          "description": "How much the agent believes this record is true. Direct observation is high; inference from a single episode is low. Recall can filter on a minimum."
+        },
+        "content": {
+          "description": "Natural-language surface form. This is the text that gets embedded, keyword-indexed, and injected into a host prompt. Everything a reader needs should be here; payload is for machines.",
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "embedding_model": {
+          "description": "Identifier of the model that produced this record's vector. Required to detect drift when the embedder changes and to schedule a re-embed pass.",
+          "oneOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "description": "Hard expiry. The daemon tombstones the record once passed. Null means no TTL.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/uuid",
+          "description": "Stable primary key. Assigned by the memory agent, never by the host."
+        },
+        "idempotency_key": {
+          "description": "Caller-supplied key, unique within a scope. A repeated write with the same key returns the original record instead of creating a duplicate. This is what makes the agent safe inside a retrying loop.",
+          "oneOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "importance": {
+          "$ref": "#/$defs/unit_interval",
+          "default": 0.5,
+          "description": "How much this record should be favoured independent of query relevance. Assigned by the writer, optionally revised by reflection."
+        },
+        "last_accessed_at": {
+          "$ref": "#/$defs/timestamp",
+          "description": "Set every time this record is returned by a recall. Drives the recency term in the retrieval score."
+        },
+        "payload": {
+          "description": "Structured, type-specific or host-specific data. Never embedded, never keyword-indexed. Opaque to the memory agent.",
+          "type": "object"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "description": "Contract version this record was written against. Bumped only on breaking changes.",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope",
+          "description": "Namespace isolating one agent, project, or tenant from another. Recall never crosses a scope unless explicitly asked to. Use dotted segments for hierarchy, e.g. 'leewood.crm.builder'."
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "superseded_by": {
+          "description": "When a newer record replaces this one, the newer record's id. Set together with status='superseded'.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tags": {
+          "description": "Free-form labels for filtering. Lowercase, no spaces.",
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9._/-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "type": {
+          "description": "Which CoALA long-term memory module this record belongs to.",
+          "enum": [
+            "episodic",
+            "semantic",
+            "procedural"
+          ]
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "schema_version",
+        "id",
+        "type",
+        "scope",
+        "content",
+        "created_at",
+        "status"
+      ],
+      "type": "object"
+    },
+    "provenance": {
+      "description": "Where this record came from. Non-negotiable for semantic records: a fact with no traceable origin cannot be adjudicated when it later contradicts something.",
+      "properties": {
+        "agent": {
+          "description": "Identifier of the writing agent or orchestration, e.g. 'crm-builder' or 'memory-agent.daemon'.",
+          "maxLength": 255,
+          "type": "string"
+        },
+        "derived_from": {
+          "description": "Record ids this one was distilled from. A semantic fact produced by reflection points back at the episodes that produced it.",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "maxItems": 256,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "note": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "source": {
+          "description": "host = written by an attached orchestration. daemon = written by the independent consolidation loop. human = written or approved by a person. import = bulk-seeded from an external corpus.",
+          "enum": [
+            "host",
+            "daemon",
+            "human",
+            "import"
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    "scope": {
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "status": {
+      "description": "Lifecycle state. Only 'active' records are returned by recall. Nothing is ever silently destroyed: forgetting moves a record to 'tombstoned' or 'redacted' so the audit trail survives.",
+      "enum": [
+        "active",
+        "superseded",
+        "tombstoned",
+        "redacted"
+      ]
+    },
+    "timestamp": {
+      "description": "RFC 3339 / ISO 8601 timestamp, always UTC with an explicit offset.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "unit_interval": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    },
+    "uuid": {
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory-envelope.schema.json",
+  "$ref": "#/$defs/envelope",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Fields common to every long-term memory record, regardless of CoALA memory module. Episodic, semantic, and procedural records all extend this envelope. Note: $id values are stable identifiers, not fetchable URLs; $refs are relative and resolve against the file layout.",
+  "title": "Memory Envelope",
+  "type": "object",
+  "unevaluatedProperties": false
+}

@@ -1,0 +1,111 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_recall.input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cycle_id": {
+      "description": "When set, the recall is logged into that cycle's working memory, so what the agent was shown is reconstructable alongside what it did.",
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "include_sensitive": {
+      "default": false,
+      "description": "Include records marked pii/secret in context_block. Off by default; when off, the response still reports how many were withheld so redaction is visible rather than silent.",
+      "type": "boolean"
+    },
+    "include_superseded": {
+      "default": false,
+      "type": "boolean"
+    },
+    "k": {
+      "default": 12,
+      "maximum": 200,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_tokens": {
+      "default": 1500,
+      "description": "Hard ceiling on context_block. The response reports the actual count and whether anything was cut.",
+      "maximum": 32000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "min_confidence": {
+      "$ref": "memory-envelope.schema.json#/$defs/unit_interval"
+    },
+    "query": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "memory-envelope.schema.json#/$defs/scope"
+    },
+    "session_id": {
+      "description": "Restrict episodic results to one run. Ignored for semantic and procedural records, which are not run-scoped.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "strategy": {
+      "default": "hybrid",
+      "description": "hybrid fuses vector and keyword. semantic is vector only. keyword is BM25 only, and is the correct choice for exact identifiers. recent ignores relevance and returns the newest matching records.",
+      "enum": [
+        "hybrid",
+        "semantic",
+        "keyword",
+        "recent"
+      ]
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "time_window": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+        },
+        "to": {
+          "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+        }
+      },
+      "type": "object"
+    },
+    "types": {
+      "default": [
+        "semantic",
+        "procedural"
+      ],
+      "items": {
+        "description": "One of: `episodic`, `semantic`, `procedural`.",
+        "enum": [
+          "episodic",
+          "semantic",
+          "procedural"
+        ],
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "weights": {
+      "$ref": "recall-response.schema.json#/$defs/weights",
+      "description": "Per-call override of the policy ranking weights. Use for evaluation, not as a substitute for tuning policy."
+    }
+  },
+  "required": [
+    "scope",
+    "query"
+  ],
+  "type": "object"
+}

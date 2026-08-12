@@ -1,0 +1,29 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_stats.input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "include_scope_breakdown": {
+      "default": false,
+      "type": "boolean"
+    },
+    "include_top_accessed": {
+      "default": 0,
+      "maximum": 50,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "scope": {
+      "description": "Omit for totals across every scope.",
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/scope"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "type": "object"
+}

@@ -1,0 +1,48 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_close_cycle.output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "already_closed": {
+      "description": "True when the cycle was already closed. The call is a no-op rather than an error, so a retried loop iteration does not fail here.",
+      "type": "boolean"
+    },
+    "closed_at": {
+      "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+    },
+    "cycle_id": {
+      "$ref": "memory-envelope.schema.json#/$defs/uuid"
+    },
+    "duration_ms": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "episodic_record_ids": {
+      "items": {
+        "$ref": "memory-envelope.schema.json#/$defs/uuid"
+      },
+      "type": "array"
+    },
+    "steps_recorded": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "summary_record_id": {
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "cycle_id",
+    "closed_at",
+    "already_closed",
+    "episodic_record_ids"
+  ],
+  "type": "object"
+}

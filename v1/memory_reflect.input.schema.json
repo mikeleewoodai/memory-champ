@@ -1,0 +1,73 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_reflect.input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "auto_commit": {
+      "default": false,
+      "description": "Commit semantic results directly instead of queuing them for review. Has no effect on procedural results, which are always proposals.",
+      "type": "boolean"
+    },
+    "max_episodes": {
+      "default": 5000,
+      "description": "Cap on episodes examined, so a reflect over a large store stays bounded. The response reports whether the cap was hit.",
+      "maximum": 100000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_proposals": {
+      "default": 50,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "modes": {
+      "default": [
+        "consolidate",
+        "contradictions"
+      ],
+      "items": {
+        "description": "One of: `consolidate`, `contradictions`, `promote`, `importance`.",
+        "enum": [
+          "consolidate",
+          "contradictions",
+          "promote",
+          "importance"
+        ],
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "scope": {
+      "$ref": "memory-envelope.schema.json#/$defs/scope"
+    },
+    "window": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+        },
+        "lookback_days": {
+          "maximum": 3650,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "session_id": {
+          "description": "Reflect over one run only. This is the usual choice for an attached host reflecting at the end of its own work.",
+          "maxLength": 255,
+          "type": "string"
+        },
+        "to": {
+          "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "scope"
+  ],
+  "type": "object"
+}

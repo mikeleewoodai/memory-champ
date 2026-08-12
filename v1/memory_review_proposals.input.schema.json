@@ -1,0 +1,141 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_review_proposals.input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "reject"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "proposal_ids",
+          "reviewed_by",
+          "signatures"
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "action": {
+      "description": "One of: `list`, `approve`, `reject`.",
+      "enum": [
+        "list",
+        "approve",
+        "reject"
+      ],
+      "type": "string"
+    },
+    "challenge_ttl_seconds": {
+      "default": 600,
+      "description": "For list: how long the issued nonces stay valid. Short by default so an unused challenge cannot be banked.",
+      "maximum": 3600,
+      "minimum": 30,
+      "type": "integer"
+    },
+    "kind": {
+      "description": "One of: `procedural`, `semantic`, `forget`, `supersede`.",
+      "enum": [
+        "procedural",
+        "semantic",
+        "forget",
+        "supersede"
+      ],
+      "type": "string"
+    },
+    "limit": {
+      "default": 50,
+      "maximum": 200,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "note": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "proposal_ids": {
+      "description": "For approve/reject. Each id must have a matching entry in `signatures` \u2014 decisions are signed one proposal at a time, because a single signature covering a batch could be reused against a different batch.",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "type": "array"
+    },
+    "reviewed_by": {
+      "description": "Identifier of the person deciding. Must equal the `reviewer:` line inside every supplied signed payload; a mismatch is refused rather than silently preferring one.",
+      "maxLength": 255,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "memory-envelope.schema.json#/$defs/scope"
+    },
+    "signatures": {
+      "description": "Required for approve and reject, one entry per proposal id. Without a valid entry the call returns APPROVAL_SIGNATURE_REQUIRED and nothing changes.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "alg": {
+            "const": "ed25519"
+          },
+          "key_id": {
+            "description": "SHA256 fingerprint of the signing public key. Must match a reviewer key in policy that is not revoked.",
+            "pattern": "^SHA256:[A-Za-z0-9+/]{43}$",
+            "type": "string"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "sig": {
+            "description": "Base64 of the 64-byte Ed25519 signature over signed_payload.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$",
+            "type": "string"
+          },
+          "signed_payload": {
+            "description": "The exact bytes returned as `signing_payload` by the preceding list call, unmodified. Sent back verbatim rather than reconstructed \u2014 the server verifies the signature over these bytes and then checks the fields inside them against the request.",
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "alg",
+          "key_id",
+          "signed_payload",
+          "sig"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "type": "array"
+    },
+    "state": {
+      "default": "pending",
+      "description": "One of: `pending`, `approved`, `rejected`, `expired`.",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "expired"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,32 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/memory_propose_procedure.output.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "dedupe_hit": {
+      "description": "True when an identical pending proposal already existed; proposal_id points at it and nothing new was created.",
+      "type": "boolean"
+    },
+    "expires_at": {
+      "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+    },
+    "proposal_id": {
+      "type": "string"
+    },
+    "queue_depth": {
+      "description": "Pending proposals now waiting in this scope. A queue that only grows is a sign the gate is being ignored.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "state": {
+      "const": "pending",
+      "description": "Always 'pending'. No caller can produce any other value here."
+    }
+  },
+  "required": [
+    "proposal_id",
+    "state",
+    "dedupe_hit"
+  ],
+  "type": "object"
+}

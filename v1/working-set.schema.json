@@ -1,0 +1,146 @@
+{
+  "$id": "https://mikeleewoodai.github.io/memory-champ/v1/working-set.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "CoALA working memory for one decision cycle: the goal in play, what was retrieved into it, and what has been observed so far.\n\nThis is deliberately NOT durable knowledge. It is a short-lived scratch buffer that exists so a loop can survive a crash, so a trajectory can be reconstructed, and so runaway loops can be detected. It expires. Anything worth keeping has to be promoted into a long-term record by memory_remember or memory_close_cycle.\n\nThe working set is the memory agent's, not the host's: it does not attempt to own or mirror the host's context window.",
+  "properties": {
+    "closed_at": {
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cycle_id": {
+      "$ref": "memory-envelope.schema.json#/$defs/uuid"
+    },
+    "expires_at": {
+      "$ref": "memory-envelope.schema.json#/$defs/timestamp",
+      "description": "TTL for the scratch buffer itself. Default 24h. Expiry destroys the working set, never the episodic records promoted out of it."
+    },
+    "goal": {
+      "description": "What the host is trying to achieve this cycle, in its own words.",
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "loop_signature": {
+      "description": "Stable hash of the normalised goal plus the first action taken. Two cycles with the same signature and no change in outcome are the definition of a stuck loop; this field is what makes that detectable cheaply.",
+      "maxLength": 128,
+      "type": "string"
+    },
+    "observations": {
+      "description": "Append-only log of what happened this cycle, written before the host acts on each result. On close these become episodic records; on abandonment they are still promoted, marked outcome='abandoned'.",
+      "items": {
+        "properties": {
+          "at": {
+            "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+          },
+          "step_no": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 8192,
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_no",
+          "at",
+          "text"
+        ],
+        "type": "object",
+        "unevaluatedProperties": false
+      },
+      "maxItems": 512,
+      "type": "array"
+    },
+    "opened_at": {
+      "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+    },
+    "outcome": {
+      "default": "unknown",
+      "enum": [
+        "success",
+        "failure",
+        "partial",
+        "abandoned",
+        "unknown"
+      ]
+    },
+    "parent_cycle_id": {
+      "description": "Set when this cycle runs inside another agent's cycle, e.g. a subagent in a fan-out.",
+      "oneOf": [
+        {
+          "$ref": "memory-envelope.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retrieved": {
+      "description": "Records pulled into working memory this cycle. `injected` distinguishes what was actually handed to the host from what was merely a candidate, so recall quality can be evaluated after the fact.",
+      "items": {
+        "properties": {
+          "injected": {
+            "default": false,
+            "type": "boolean"
+          },
+          "record_id": {
+            "$ref": "memory-envelope.schema.json#/$defs/uuid"
+          },
+          "retrieved_at": {
+            "$ref": "memory-envelope.schema.json#/$defs/timestamp"
+          },
+          "score": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "record_id"
+        ],
+        "type": "object",
+        "unevaluatedProperties": false
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "memory-envelope.schema.json#/$defs/scope"
+    },
+    "session_id": {
+      "maxLength": 255,
+      "minLength": 1,
+      "type": "string"
+    },
+    "status": {
+      "description": "'abandoned' is set by the daemon when it reaps a cycle that was opened and never closed \u2014 an unclosed cycle is evidence of a crash, not something to discard.",
+      "enum": [
+        "open",
+        "closed",
+        "abandoned"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "cycle_id",
+    "session_id",
+    "scope",
+    "goal",
+    "status",
+    "opened_at",
+    "expires_at"
+  ],
+  "title": "Working Set",
+  "type": "object",
+  "unevaluatedProperties": false
+}
