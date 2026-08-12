@@ -74,10 +74,81 @@ def main(argv: list[str]) -> int:
         # stays empty when nothing actually changed.
         dest.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    print(f"wrote {len(found)} schemas to {out_root}")
+    _write_index(out_root / "v1" / "index.html", found)
+
+    print(f"wrote {len(found)} schemas + an index to {out_root}")
     for ident in sorted(found):
         print(f"  {ident[len(BASE):]}")
     return 0
+
+
+def _write_index(dest: Path, found: dict[str, dict]) -> None:
+    """A directory listing for /v1/.
+
+    GitHub Pages serves 404 for a directory with no index, so without this the
+    `Schemas` link in the published brief lands on nothing. Generated from the
+    same walk as the schemas themselves, so it cannot list a file that was not
+    written or miss one that was.
+    """
+    # The record schemas carry their own `title`. The tool input/output schemas
+    # do not - the prose lives on the tool that owns them - so those get a label
+    # derived from the filename instead of an empty cell.
+    rows = []
+    for ident in sorted(found):
+        name = ident[len(BASE) + len("v1/"):]
+        rows.append(f'    <tr><td><a href="{name}">{name}</a></td>'
+                    f'<td>{_escape(_label(name, found[ident]))}</td></tr>')
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>memory-champ — v1 JSON Schemas</title>
+<style>
+  :root{{color-scheme:light dark;--ink:#231e19;--soft:#5b5349;--line:#ddd8cc;
+        --bg:#f6f4ee;--card:#fff;--euc:#2f5d4f}}
+  @media(prefers-color-scheme:dark){{:root{{--ink:#e8e6e0;--soft:#a9b0ac;--line:#333b3c;
+        --bg:#16191a;--card:#1d2223;--euc:#8fd0b4}}}}
+  body{{margin:0;background:var(--bg);color:var(--ink);padding:44px 22px;
+       font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}}
+  main{{max-width:820px;margin:0 auto}}
+  h1{{font-size:1.7rem;margin:0 0 6px;letter-spacing:-.02em}}
+  p{{color:var(--soft);margin:0 0 22px}}
+  a{{color:var(--euc)}}
+  .wrapt{{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:12px}}
+  table{{width:100%;border-collapse:collapse;font-size:.92rem}}
+  td{{padding:9px 14px;border-bottom:1px solid var(--line);vertical-align:top}}
+  tr:last-child td{{border-bottom:none}}
+  td:first-child{{font-family:ui-monospace,Consolas,monospace;font-size:.83rem;white-space:nowrap}}
+  td:last-child{{color:var(--soft)}}
+</style></head><body><main>
+<h1>v1 JSON Schemas</h1>
+<p>The tool contract for <a href="../">memory-champ</a>, at the URLs its
+<code>$id</code> values declare. Generated from <code>contracts/</code> —
+<a href="https://github.com/mikeleewoodai/memory-champ">source on GitHub</a>.</p>
+<div class="wrapt"><table>
+{chr(10).join(rows)}
+</table></div>
+</main></body></html>
+""", encoding="utf-8")
+
+
+def _label(filename: str, schema: dict) -> str:
+    """A one-line description for the index."""
+    explicit = schema.get("title") or schema.get("description") or ""
+    if explicit:
+        return explicit.split(". ")[0].strip().rstrip(".")
+
+    stem = filename.removesuffix(".schema.json")
+    for suffix, word in ((".input", "arguments"), (".output", "result")):
+        if stem.endswith(suffix):
+            return f"{stem.removesuffix(suffix)} — {word}"
+    return stem
+
+
+def _escape(text: str) -> str:
+    return (text.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
 
 
 if __name__ == "__main__":

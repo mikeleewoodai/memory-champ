@@ -10,9 +10,11 @@ It has no grounding actions. It never reaches the network, never touches the fil
 
 ## Start here — the brief
 
-**[`docs/memory-champ-brief.html`](docs/memory-champ-brief.html)** explains this project to someone who has never seen it: the problem it solves, how it works in plain English, and the technical detail folded into collapsible sections underneath. It names the limits too, including the one that blocks a work version.
+**[mikeleewoodai.github.io/memory-champ](https://mikeleewoodai.github.io/memory-champ/)** explains this project to someone who has never seen it: the problem it solves, how it works in plain English, and the technical detail folded into collapsible sections underneath. It names the limits too, including the one that blocks a work version.
 
-Download it and open it in a browser — GitHub serves `.html` as source rather than rendering it. The file is self-contained: all CSS and graphics are inline, nothing is fetched, so it works offline.
+The source is [`docs/memory-champ-brief.html`](docs/memory-champ-brief.html), a single self-contained file — all CSS and graphics inline, nothing fetched — so it reads the same offline. GitHub serves `.html` as source rather than rendering it, which is what the published copy is for.
+
+The tool contract is published too: every `$id` in `contracts/` resolves under **[/v1/](https://mikeleewoodai.github.io/memory-champ/v1/)**.
 
 ## Install
 

@@ -229,9 +229,60 @@
          color:var(--bark-soft);font-size:.85rem;display:flex;justify-content:space-between;
          gap:14px;flex-wrap:wrap;align-items:center}
   .zzz{font-family:var(--mono);opacity:.55;letter-spacing:.3em}
+  footer a{color:var(--bark-soft);text-decoration:underline;text-underline-offset:3px}
+  footer a:hover{color:var(--euc-mid)}
+  footer .links{display:flex;gap:18px;flex-wrap:wrap}
+
+  /* ---------- top bar ---------- */
+  .topbar{position:sticky;top:0;z-index:20;
+    background:color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter:saturate(1.4) blur(9px);
+    -webkit-backdrop-filter:saturate(1.4) blur(9px);
+    border-bottom:1px solid var(--line)}
+  .topbar .inner{max-width:920px;margin:0 auto;padding:11px 22px;
+    display:flex;align-items:center;gap:16px}
+  .topbar .brand{font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+  .topbar .brand::before{content:"";width:17px;height:17px;background:var(--euc-mid);
+    -webkit-mask:var(--pawmask) center/contain no-repeat;mask:var(--pawmask) center/contain no-repeat}
+  .topbar nav{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .topbar nav a{font-size:.86rem;text-decoration:none;color:var(--ink-soft);
+    padding:6px 11px;border-radius:8px;border:1px solid transparent;white-space:nowrap}
+  .topbar nav a:hover{background:var(--raise);color:var(--ink)}
+  .topbar nav a.primary{border-color:var(--euc-mid);color:var(--euc-mid);font-weight:600}
+  .topbar nav a.primary:hover{background:var(--euc-mid);color:var(--paper)}
+  :focus-visible{outline:2px solid var(--euc-mid);outline-offset:2px;border-radius:4px}
+  /* Clear the sticky bar on an in-page jump. Without this the target heading
+     lands at y=0, underneath the bar, and the link looks broken. */
+  section[id]{scroll-margin-top:76px}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  @media(max-width:560px){
+    .topbar .brand{display:none}
+    .topbar nav{margin-left:0;justify-content:space-between;width:100%}
+  }
+
+  /* ---------- install ---------- */
+  pre.cmd{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:15px 18px;overflow-x:auto;font-family:var(--mono);font-size:.84rem;
+    line-height:1.7;margin:0 0 12px;box-shadow:var(--shadow)}
+  pre.cmd .c{color:var(--bark-soft)}
+  pre.cmd b{color:var(--euc-mid);font-weight:600}
 </style>
 </head>
 <body>
+
+<div class="topbar">
+  <div class="inner">
+    <span class="brand">memory-champ</span>
+    <nav>
+      <a href="#get-it">Install</a>
+      <a href="#under-the-fur">Technical</a>
+      <a href="v1/">Schemas</a>
+      <a class="primary" href="https://github.com/mikeleewoodai/memory-champ">GitHub&nbsp;↗</a>
+    </nav>
+  </div>
+</div>
+
 <div class="wrap">
 
 <header>
@@ -619,7 +670,7 @@
 </section>
 
 <!-- ================= TECHNICAL ================= -->
-<section>
+<section id="under-the-fur">
   <p class="eyebrow">For the technical reader</p>
   <h2>Under the fur</h2>
   <p class="lede">Optional detail. Everything above is the whole brief if you don't want this.</p>
@@ -790,8 +841,38 @@
   </div>
 </section>
 
+<!-- ================= INSTALL ================= -->
+<section id="get-it">
+  <p class="eyebrow">Get it</p>
+  <h2>Two commands</h2>
+  <p class="lede">The second one prints the host config you paste in — key, policy, and MCP block,
+    with the interpreter path already resolved.</p>
+
+  <pre class="cmd"><span class="c"># everything but the 2 GB of torch</span>
+<b>uv tool install</b> "memory-agent[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+<b>memory-agent init</b></pre>
+
+  <p style="margin-top:16px">Plain pip works the same way in a venv of your own, and
+    <code>pip install "memory-agent[all]"</code> adds semantic embeddings when lexical overlap stops
+    being enough. Python 3.10+, MIT licensed. The
+    <a href="https://github.com/mikeleewoodai/memory-champ#readme">README</a> has the full setup,
+    and the <a href="v1/">published JSON Schemas</a> are the tool contract if you are integrating
+    against it.</p>
+
+  <div class="fact">
+    <p><b>Koala fact.</b> Koalas have two opposable thumbs on each front paw, which is what makes the
+      grip hold. Nothing to do with the install — it is just a very good paw.</p>
+  </div>
+</section>
+
 <footer>
-  <span>memory-champ · a CoALA memory service · local, offline, one file</span>
+  <div class="links">
+    <a href="https://github.com/mikeleewoodai/memory-champ">GitHub</a>
+    <a href="https://github.com/mikeleewoodai/memory-champ#readme">README</a>
+    <a href="v1/">JSON Schemas</a>
+    <a href="https://github.com/mikeleewoodai/memory-champ/blob/main/LICENSE">MIT</a>
+    <a href="https://arxiv.org/abs/2309.02427">CoALA paper</a>
+  </div>
   <span class="zzz" title="koalas sleep up to 20 hours a day">z z z</span>
 </footer>
 
