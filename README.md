@@ -18,47 +18,77 @@ The tool contract is published too: every `$id` in `contracts/` resolves under *
 
 ## Install
 
-**pipx** is the recommended route. It puts the CLI in its own isolated
-environment and on your PATH, which is exactly the arrangement this needs, and
-it is the most reliable of the three on Windows.
+Nothing to install first — this uses the `venv` and `pip` that ship with
+Python:
 
 ```bash
-pipx install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
-memory-agent init --no-passphrase
+python -m venv ~/memory-champ-venv
 ```
 
-`--no-passphrase` keeps the whole thing non-interactive. Drop it to be prompted
-for one, or see [Passphrases without a terminal](#passphrases-without-a-terminal)
-to supply one from a file or the environment.
+```bash
+~/memory-champ-venv/bin/pip install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+```
+
+```bash
+~/memory-champ-venv/bin/memory-agent init --no-passphrase
+```
+
+On Windows the paths are `C:\memory-champ-venv\Scripts\pip.exe` and
+`C:\memory-champ-venv\Scripts\memory-agent.exe`. Calling the scripts by full
+path is deliberate: it needs nothing on your PATH, and works the same in
+PowerShell, cmd, and bash.
+
+**Type `[recommended]` exactly as written.** It is not a placeholder — it is the
+name of an optional dependency group. See [Which extras](#which-extras).
+
+`--no-passphrase` keeps it non-interactive. Drop it to be prompted, or see
+[Passphrases without a terminal](#passphrases-without-a-terminal) to supply one
+from a file or the environment.
 
 <details>
-<summary>uv, or a plain venv</summary>
+<summary>pipx (nicer, but one more thing to install)</summary>
+
+pipx keeps the CLI in its own environment and puts it on your PATH. It is the
+better long-term arrangement for a command-line tool; it just is not present by
+default, so the plain-venv route above is what this README leads with.
+
+```bash
+python -m pip install --user pipx
+```
+
+```bash
+python -m pipx install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+```
+
+Invoking it as `python -m pipx` rather than `pipx` avoids the first thing that
+goes wrong — a fresh `pip install --user pipx` frequently leaves `pipx` itself
+off your PATH. `python -m pipx ensurepath` fixes that for later shells.
+
+</details>
+
+<details>
+<summary>uv</summary>
 
 ```bash
 uv tool install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
-```
-
-```bash
-python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
 ```
 
 **On Windows, `uv tool install` puts scripts in `%USERPROFILE%\.local\bin`,
 which is not on PATH by default.** Either add it, or call the command by its
 full path. `uv tool update-shell` adds it for you.
 
-</details>
-
 > **Known issue — the uv trampoline.** Some `uv`-installed console scripts fail
 > on Windows with an error about a trampoline or a missing interpreter, usually
 > after the Python that `uv` linked against moves or is upgraded. It is not
-> specific to this package. Use **pipx** instead, or a plain venv, or
-> `uv tool install --force --reinstall` to relink. The venv route always works
+> specific to this package. Use the venv or pipx route instead, or
+> `uv tool install --force --reinstall` to relink. A plain venv always works,
 > because the script points at an interpreter you control.
 
-Install it as `memory-champ`; the command is `memory-agent`, and
-`memory-champ` works as well. The two names differ because an unrelated project
-already publishes under `memory-agent`.
+</details>
+
+Install it as `memory-champ`; the command is `memory-agent`, and `memory-champ`
+works as well. The two names differ because an unrelated project already
+publishes under `memory-agent`.
 
 ### Which extras
 
