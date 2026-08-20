@@ -853,7 +853,11 @@
 <b>~/memory-champ-venv/bin/pip install</b> "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
 <b>~/memory-champ-venv/bin/memory-agent init --no-passphrase</b></pre>
 
-  <p style="margin-top:16px"><code>[recommended]</code> is literal, not a placeholder — it names an optional
+  <p style="margin-top:16px"><code>init</code> prints an MCP config block ready to paste. To skip the
+    pasting, <code>memory-agent install-claude-desktop</code> merges it for you — backing the file up
+    first, leaving your other servers alone, and refusing outright on JSON it cannot parse.</p>
+
+  <p><code>[recommended]</code> is literal, not a placeholder — it names an optional
     dependency group. On Windows the paths are <code>Scripts\pip.exe</code> and
     <code>Scripts\memory-agent.exe</code>. pipx and uv work too, and
     <code>[all]</code> instead of <code>[recommended]</code> adds semantic embeddings when lexical
