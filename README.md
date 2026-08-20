@@ -18,30 +18,108 @@ The tool contract is published too: every `$id` in `contracts/` resolves under *
 
 ## Install
 
-Two commands. The second one prints the host config you paste in.
+**pipx** is the recommended route. It puts the CLI in its own isolated
+environment and on your PATH, which is exactly the arrangement this needs, and
+it is the most reliable of the three on Windows.
 
 ```bash
-uv tool install "memory-agent[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
-memory-agent init
+pipx install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+memory-agent init --no-passphrase
 ```
 
-Plain pip works the same way, in a venv of your own:
+`--no-passphrase` keeps the whole thing non-interactive. Drop it to be prompted
+for one, or see [Passphrases without a terminal](#passphrases-without-a-terminal)
+to supply one from a file or the environment.
+
+<details>
+<summary>uv, or a plain venv</summary>
+
+```bash
+uv tool install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+```
 
 ```bash
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install "memory-agent[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
-memory-agent init
+pip install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
 ```
 
-`recommended` is vector recall, exact token counting, and the MCP server — everything except semantic embeddings, which pull torch and about 2 GB. Add them when lexical overlap stops being good enough, a call worth making against your own corpus rather than up front:
+**On Windows, `uv tool install` puts scripts in `%USERPROFILE%\.local\bin`,
+which is not on PATH by default.** Either add it, or call the command by its
+full path. `uv tool update-shell` adds it for you.
+
+</details>
+
+> **Known issue — the uv trampoline.** Some `uv`-installed console scripts fail
+> on Windows with an error about a trampoline or a missing interpreter, usually
+> after the Python that `uv` linked against moves or is upgraded. It is not
+> specific to this package. Use **pipx** instead, or a plain venv, or
+> `uv tool install --force --reinstall` to relink. The venv route always works
+> because the script points at an interpreter you control.
+
+The package is `memory-champ`; the command is `memory-agent`, and
+`memory-champ` works too. (`memory-agent` is [taken on
+PyPI](https://pypi.org/project/memory-agent/) by an unrelated project, hence
+the difference.)
+
+### Which extras
+
+`recommended` is vector recall, exact token counting, and the MCP server —
+everything except semantic embeddings, which pull torch and about 2 GB. Add
+those when lexical overlap stops being good enough, a call worth making against
+your own corpus rather than up front:
 
 ```bash
-pip install "memory-agent[all]"     # adds sentence-transformers
+pipx install "memory-champ[all] @ git+https://github.com/mikeleewoodai/memory-champ"
 ```
 
-Only `cryptography`, `PyYAML`, and `bcrypt` are truly required. The rest degrades visibly rather than failing: no `sqlite-vec` means keyword-only recall that says so, no `sentence-transformers` means the built-in hashing embedder, no `tiktoken` means a conservative token bound.
+Only `cryptography`, `PyYAML`, and `bcrypt` are truly required. The rest
+degrades visibly rather than failing: no `sqlite-vec` means keyword-only recall
+that says so, no `sentence-transformers` means the built-in hashing embedder,
+no `tiktoken` means a conservative token bound.
 
-Working on the code instead of using it? `pip install -e ".[all,dev]"` — `dev` is what brings in `pytest` and `jsonschema`, and `[all]` deliberately does not include it, so a bare `.[all]` leaves the `pytest -q` below with nothing to run.
+Working on the code instead of using it? `pip install -e ".[all,dev]"` — `dev`
+is what brings in `pytest` and `jsonschema`, and `[all]` deliberately does not
+include it, so a bare `.[all]` leaves the `pytest -q` below with nothing to run.
+
+Python 3.10+, tested on 3.10 through 3.14.
+
+### Wiring it into Claude Desktop
+
+`init` prints a config block to paste. To skip the pasting:
+
+```bash
+memory-agent install-claude-desktop            # --dry-run to see it first
+```
+
+It merges into `claude_desktop_config.json`, backs the file up first, leaves
+every other server alone, and refuses outright if the file does not parse —
+that file holds all your other MCP servers, and rewriting one we could not read
+would destroy them.
+
+### Passphrases without a terminal
+
+The reviewer key can be encrypted, and by default `init` asks for a passphrase
+interactively. Anything scripted should not go near that prompt — pick one of:
+
+| | |
+|---|---|
+| `--no-passphrase` | write the key unencrypted |
+| `--passphrase-file PATH` | read it from the file's first line |
+| `MEMORY_AGENT_PASSPHRASE=…` | read it from the environment |
+| `MEMORY_AGENT_NONINTERACTIVE=1` | refuse to prompt at all, and fail immediately |
+
+All four work on `init`, `keygen`, and `review approve`.
+
+Why this matters more than it looks: on Windows, `getpass` writes its prompt
+with `msvcrt.putwch`, straight to the console device rather than to stdout or
+stderr. A caller reading pipes sees **nothing**, and the read then blocks
+forever — so an unanswered prompt presents as a silent hang with no clue what
+is wanted. `sys.stdin.isatty()` does not save you either: agent harnesses and
+CI runners hand the process a pty, so it answers `True` with nobody there.
+
+So the prompt now announces itself on stdout before it appears, and gives up on
+a deadline (60s, `MEMORY_AGENT_PROMPT_TIMEOUT` to change) rather than hanging.
+Use the table above and you never reach it.
 
 ## What `init` does
 

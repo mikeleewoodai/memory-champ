@@ -1,0 +1,67 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # Windows is in the matrix deliberately: the two worst defects this project
+    # has had were Windows-only (cp1252 mangling a signed fixture, and a
+    # getpass prompt written to the console device where no caller can see it).
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # [all] would pull torch on every cell of the matrix for one optional
+      # embedder. The recommended set plus dev is what the gates actually need.
+      - run: pip install -e ".[recommended,dev]"
+      - run: python verify.py
+      - run: pytest -q
+
+  install:
+    # The gate above runs from a checkout, where contracts/ resolves by accident.
+    # This one proves a real, non-editable install still works - the exact bug
+    # that shipped and that no in-repo test can see.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ".[recommended]"
+      - name: init must not prompt or hang
+        shell: bash
+        env:
+          MEMORY_AGENT_NONINTERACTIVE: "1"
+        run: |
+          memory-agent init --home "$RUNNER_TEMP/ma" --no-passphrase
+          memory-champ --help > /dev/null
+      - name: store must open outside the checkout
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          MEMORY_AGENT_HOME: ${{ runner.temp }}/ma
+        run: |
+          python -c "
+          from memory_agent.config import Policy
+          from memory_agent.service import MemoryService
+          s = MemoryService(Policy.load())
+          s.remember(scope='ci', type='semantic', content='installed cleanly')
+          assert s.recall(scope='ci', query='installed')['records']
+          s.close()
+          print('non-editable install OK')
+          "

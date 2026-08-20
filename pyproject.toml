@@ -1,12 +1,36 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]   # PEP 639 license expression
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "memory-agent"
+# PyPI distribution name. NOT "memory-agent": that is taken on PyPI by an
+# unrelated, actively maintained project in the same problem domain, so
+# publishing there is impossible and the collision would be actively
+# misleading. "memory-champ" matches the repo, the MCP server name, and the
+# docs URL. The import package stays `memory_agent`.
+name = "memory-champ"
 version = "1.0.0"
 description = "CoALA-based memory service for agent orchestrations, over MCP"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
+authors = [{ name = "Mike Chase" }]
+keywords = ["mcp", "memory", "agents", "coala", "llm", "sqlite"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 
 # Deliberately small. Everything heavier is optional and degrades visibly rather
 # than failing: no sqlite-vec means keyword-only recall, no sentence-transformers
@@ -21,6 +45,11 @@ dependencies = [
     # out makes the secure path the one that breaks.
     "bcrypt>=4",
 ]
+
+[project.urls]
+Homepage = "https://mikeleewoodai.github.io/memory-champ/"
+Source = "https://github.com/mikeleewoodai/memory-champ"
+Issues = "https://github.com/mikeleewoodai/memory-champ/issues"
 
 [project.optional-dependencies]
 vector = ["sqlite-vec>=0.1.6"]
@@ -44,6 +73,10 @@ recommended = ["sqlite-vec>=0.1.6", "tiktoken>=0.5", "mcp>=1.0"]
 all = ["sqlite-vec>=0.1.6", "sentence-transformers>=2.2", "tiktoken>=0.5", "mcp>=1.0"]
 
 [project.scripts]
+# `memory-champ` matches what people install; `memory-agent` is what the docs
+# and every existing setup already use. Both point at the same entry point so
+# neither name is wrong.
+memory-champ = "memory_agent.cli:main"
 memory-agent = "memory_agent.cli:main"
 memory-agent-daemon = "memory_agent.daemon:main"
 memory-agent-server = "memory_agent.server:main"

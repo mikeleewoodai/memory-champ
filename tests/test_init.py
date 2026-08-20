@@ -9,6 +9,7 @@ never do rather than what it produces.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -157,11 +158,108 @@ def test_contract_path_finds_both_runtime_files():
         contract_path("nope", "missing.sql")
 
 
-def test_passphrase_requested_without_a_terminal_fails_loudly(home, monkeypatch):
-    """Prompting is impossible when stdin is not a tty, and the tempting
-    fallback — write the key unencrypted and warn — hands back a key the user
-    believes is protected. Refusing is the only safe answer."""
-    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+def test_noninteractive_refuses_instead_of_prompting(home, monkeypatch):
+    """Prompting is impossible with no human present, and the tempting fallback —
+    write the key unencrypted and warn — hands back a key the user believes is
+    protected. Refusing is the only safe answer."""
+    monkeypatch.setenv("MEMORY_AGENT_NONINTERACTIVE", "1")
 
-    assert cli.main(["init", "--home", str(home)]) == 1
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["init", "--home", str(home)])
+    assert "--no-passphrase" in str(exc.value), "must say how to proceed without a terminal"
     assert not (home / "approval").exists()
+
+
+def test_isatty_alone_is_not_trusted(home, monkeypatch):
+    """The bug this whole mechanism exists for.
+
+    An agent harness hands the process a pty, so `sys.stdin.isatty()` returns
+    True with nobody behind it. Windows `getpass` then writes its prompt with
+    `msvcrt.putwch` — to the console device, not stdout — so the caller sees
+    nothing at all, and `msvcrt.getwch()` blocks forever. isatty() saying True
+    must therefore not be enough to start a prompt that could hang: the
+    explicit env var overrides it.
+    """
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setenv("MEMORY_AGENT_NONINTERACTIVE", "1")
+    assert cli._noninteractive() is True
+
+
+def test_passphrase_from_environment(home, monkeypatch):
+    monkeypatch.setenv("MEMORY_AGENT_PASSPHRASE", "correct horse battery")
+    assert cli.main(["init", "--home", str(home)]) == 0
+
+    assert cli._is_encrypted(home / "approval"), "env passphrase must actually encrypt the key"
+    # And it must round-trip: a key nobody can reopen is worse than no key.
+    loaded = cli._load_key(str(home / "approval"))
+    assert A.fingerprint(loaded.public_key()) == A.fingerprint(
+        A.load_public_key((home / "approval.pub").read_text(encoding="utf-8").strip()))
+
+
+def test_passphrase_from_file(home, tmp_path):
+    pf = tmp_path / "pw.txt"
+    pf.write_text("from-a-file\nignored second line\n", encoding="utf-8")
+
+    assert cli.main(["init", "--home", str(home), "--passphrase-file", str(pf)]) == 0
+    assert cli._is_encrypted(home / "approval")
+
+
+def test_empty_passphrase_file_is_an_error_not_an_empty_passphrase(home, tmp_path):
+    """An empty file must not silently become an unencrypted key."""
+    pf = tmp_path / "pw.txt"
+    pf.write_text("\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="empty"):
+        cli.main(["init", "--home", str(home), "--passphrase-file", str(pf)])
+    assert not (home / "approval").exists()
+
+
+def test_require_passphrase_matches_how_the_key_was_actually_written(home, monkeypatch):
+    """policy.yaml must not claim a passphrase the key does not have.
+
+    OpenSSH keys carry the same header encrypted or not, so this is detected by
+    trying to load one — a substring check on the file would always say "not
+    encrypted" and write the wrong flag.
+    """
+    monkeypatch.setenv("MEMORY_AGENT_PASSPHRASE", "pw")
+    cli.main(["init", "--home", str(home)])
+    assert "require_passphrase: true" in (home / "policy.yaml").read_text(encoding="utf-8")
+
+    # Re-running against the existing encrypted key must keep saying true.
+    monkeypatch.delenv("MEMORY_AGENT_PASSPHRASE")
+    cli.main(["init", "--home", str(home), "--force"])
+    assert "require_passphrase: true" in (home / "policy.yaml").read_text(encoding="utf-8")
+
+
+def test_install_claude_desktop_merges_without_disturbing_anything_else(tmp_path, capsys):
+    cfg = tmp_path / "claude_desktop_config.json"
+    cfg.write_text(json.dumps({
+        "mcpServers": {"other": {"command": "node", "args": ["x.js"]}},
+        "globalShortcut": "Ctrl+Space",
+    }), encoding="utf-8")
+
+    assert cli.main(["install-claude-desktop", "--path", str(cfg)]) == 0
+    written = json.loads(cfg.read_text(encoding="utf-8"))
+
+    assert written["mcpServers"]["other"] == {"command": "node", "args": ["x.js"]}
+    assert written["globalShortcut"] == "Ctrl+Space", "unrelated keys must survive"
+    assert written["mcpServers"]["memory-champ"]["command"] == sys.executable
+    assert list(tmp_path.glob("*.bak-*")), "the original must be backed up before writing"
+
+    # Idempotent: a second run changes nothing.
+    before = cfg.read_text(encoding="utf-8")
+    assert cli.main(["install-claude-desktop", "--path", str(cfg)]) == 0
+    assert cfg.read_text(encoding="utf-8") == before
+
+
+def test_install_claude_desktop_refuses_to_clobber_unparseable_json(tmp_path):
+    """That file holds every other MCP server the user has. Failing to parse it
+    is far likelier to mean we do not understand it than that it is corrupt, and
+    rewriting it would destroy the lot."""
+    cfg = tmp_path / "claude_desktop_config.json"
+    cfg.write_text('{ "mcpServers": {"a": {}}, <<< not json\n', encoding="utf-8")
+    before = cfg.read_bytes()
+
+    assert cli.main(["install-claude-desktop", "--path", str(cfg)]) == 1
+    assert cfg.read_bytes() == before
+    assert not list(tmp_path.glob("*.bak-*")), "no backup either - nothing was written"

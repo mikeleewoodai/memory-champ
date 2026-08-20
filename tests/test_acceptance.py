@@ -741,6 +741,11 @@ def test_f23_mistyped_passphrase_fails_cleanly_and_allows_retries(tmp_path, monk
     path.write_bytes(key.private_bytes(
         s.Encoding.PEM, s.PrivateFormat.OpenSSH, s.BestAvailableEncryption(b"correct")))
 
+    # Prompting is gated on there being a terminal, and pytest is not one. This
+    # test is about what happens *at* the prompt, so simulate the terminal
+    # rather than the absence of one.
+    monkeypatch.setattr(cli, "_noninteractive", lambda: False)
+
     attempts = iter(["wrong", "wrong", "wrong"])
     monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: next(attempts))
     with pytest.raises(SystemExit) as exc:
