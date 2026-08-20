@@ -3,11 +3,11 @@ requires = ["setuptools>=77"]   # PEP 639 license expression
 build-backend = "setuptools.build_meta"
 
 [project]
-# PyPI distribution name. NOT "memory-agent": that is taken on PyPI by an
-# unrelated, actively maintained project in the same problem domain, so
-# publishing there is impossible and the collision would be actively
-# misleading. "memory-champ" matches the repo, the MCP server name, and the
-# docs URL. The import package stays `memory_agent`.
+# Distribution name. NOT "memory-agent": an unrelated, actively maintained
+# project already owns that name on PyPI, in this same problem domain, so the
+# collision would be actively misleading to anyone searching. "memory-champ"
+# matches the repo, the MCP server name, and the docs URL. The import package
+# stays `memory_agent`, and both console scripts exist.
 name = "memory-champ"
 version = "1.0.0"
 description = "CoALA-based memory service for agent orchestrations, over MCP"

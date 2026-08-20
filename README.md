@@ -56,10 +56,9 @@ full path. `uv tool update-shell` adds it for you.
 > `uv tool install --force --reinstall` to relink. The venv route always works
 > because the script points at an interpreter you control.
 
-The package is `memory-champ`; the command is `memory-agent`, and
-`memory-champ` works too. (`memory-agent` is [taken on
-PyPI](https://pypi.org/project/memory-agent/) by an unrelated project, hence
-the difference.)
+Install it as `memory-champ`; the command is `memory-agent`, and
+`memory-champ` works as well. The two names differ because an unrelated project
+already publishes under `memory-agent`.
 
 ### Which extras
 
