@@ -849,12 +849,12 @@
     with the interpreter path already resolved.</p>
 
   <pre class="cmd"><span class="c"># everything but the 2 GB of torch</span>
-<b>uv tool install</b> "memory-agent[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
-<b>memory-agent init</b></pre>
+<b>pipx install</b> "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+<b>memory-agent init --no-passphrase</b></pre>
 
   <p style="margin-top:16px">Plain pip works the same way in a venv of your own, and
-    <code>pip install "memory-agent[all]"</code> adds semantic embeddings when lexical overlap stops
-    being enough. Python 3.10+, MIT licensed. The
+    <code>[all]</code> instead of <code>[recommended]</code> adds semantic embeddings when lexical
+    overlap stops being enough. Python 3.10+, MIT licensed. The
     <a href="https://github.com/mikeleewoodai/memory-champ#readme">README</a> has the full setup,
     and the <a href="v1/">published JSON Schemas</a> are the tool contract if you are integrating
     against it.</p>
