@@ -848,11 +848,14 @@
   <p class="lede">The second one prints the host config you paste in — key, policy, and MCP block,
     with the interpreter path already resolved.</p>
 
-  <pre class="cmd"><span class="c"># everything but the 2 GB of torch</span>
-<b>pipx install</b> "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
-<b>memory-agent init --no-passphrase</b></pre>
+  <pre class="cmd"><span class="c"># nothing to install first - venv and pip ship with Python</span>
+<b>python -m venv</b> ~/memory-champ-venv
+<b>~/memory-champ-venv/bin/pip install</b> "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+<b>~/memory-champ-venv/bin/memory-agent init --no-passphrase</b></pre>
 
-  <p style="margin-top:16px">Plain pip works the same way in a venv of your own, and
+  <p style="margin-top:16px"><code>[recommended]</code> is literal, not a placeholder — it names an optional
+    dependency group. On Windows the paths are <code>Scripts\pip.exe</code> and
+    <code>Scripts\memory-agent.exe</code>. pipx and uv work too, and
     <code>[all]</code> instead of <code>[recommended]</code> adds semantic embeddings when lexical
     overlap stops being enough. Python 3.10+, MIT licensed. The
     <a href="https://github.com/mikeleewoodai/memory-champ#readme">README</a> has the full setup,
