@@ -125,6 +125,38 @@ every other server alone, and refuses outright if the file does not parse —
 that file holds all your other MCP servers, and rewriting one we could not read
 would destroy them.
 
+### Wiring it into Claude Code
+
+```bash
+memory-agent install-claude-code               # --dry-run to see it first
+```
+
+Copies the `memory-agent` skill into `~/.claude/skills/`, which registers
+`/memory-agent`: recall what a project already knows, write down what was
+learned, queue procedures for approval, and read store health. The MCP server
+itself is registered separately — `claude mcp add`, or the block `init` prints.
+
+It refuses to overwrite a destination that differs (`--force` replaces it, after
+a backup), and `--check` reports drift without writing: exit 0 matches, 1
+drifted, 2 absent.
+
+Scope is the one thing the skill cannot derive, so it reads a map from
+`~/.memory-agent/claude.yaml`. Copy
+[`integrations/claude/claude.example.yaml`](integrations/claude/claude.example.yaml)
+and fill it in. Without it the skill asks instead of guessing, which is the
+intended fallback rather than a broken state.
+
+### Wiring it into Cowork
+
+```bash
+python build_plugin.py dist/
+```
+
+Writes an installable `.plugin` bundle. It carries the skill only — the MCP
+server comes from `install-claude-desktop` above, so Cowork does not start a
+second one. See
+[`integrations/claude/cowork-plugin/README.md`](integrations/claude/cowork-plugin/README.md).
+
 ### Passphrases without a terminal
 
 The reviewer key can be encrypted, and by default `init` asks for a passphrase
@@ -218,6 +250,8 @@ Approving is also callable over MCP — the signature, not the caller, is what t
 | `src/memory_agent/` | The implementation — see the module map below |
 | [`tests/`](tests/) | One test per acceptance criterion, plus contract-conformance and non-functional suites |
 | [`verify.py`](verify.py) | Contract verification: schemas, DDL invariants, the published signature |
+| [`integrations/`](integrations/README.md) | Claude Code skill and Cowork plugin, with the I-series gates that keep machine paths out of them |
+| [`build_plugin.py`](build_plugin.py) | Packages the Cowork plugin. Refuses to build a bundle carrying an absolute path |
 | [`BACKLOG.md`](BACKLOG.md) | Open work. B-1 blocks a work version |
 
 | Module | Responsibility |

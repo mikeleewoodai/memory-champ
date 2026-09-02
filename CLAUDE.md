@@ -11,7 +11,8 @@ A CoALA-based memory service for agent orchestrations. MCP interface, SQLite + s
 | `docs/memory-agent-coala-spec.md` | The spec. Architecture, CoALA mapping, action contract, numbered acceptance criteria, decision log |
 | `contracts/` | Source of truth. Tool schemas, record schemas, DDL, the signed example fixture |
 | `src/memory_agent/` | Implementation. The package keeps the `memory_agent` name; the repo is `memory-champ` |
-| `verify.py` | 132 contract checks. Run before and after any contract change |
+| `verify.py` | 157 contract checks. Run before and after any contract change |
+| `integrations/` | How the service attaches to a host: the Claude Code skill and the Cowork plugin, plus the I-series requirements that gate them |
 | `HANDOVER.md` | Read-cold orientation, plus the eight things most likely to trip you up |
 | `BACKLOG.md` | Open work, highest priority first |
 
