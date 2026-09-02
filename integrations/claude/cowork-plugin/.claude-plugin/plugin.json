@@ -1,0 +1,10 @@
+{
+  "name": "memory-champ",
+  "version": "0.1.0",
+  "description": "Durable memory for Cowork sessions: recall what a project already knows, record what happened, and queue procedures for human-signed approval. Requires the memory-champ MCP server (memory-agent install-claude-desktop).",
+  "author": { "name": "Mike Chase" },
+  "homepage": "https://mikeleewoodai.github.io/memory-champ/",
+  "repository": "https://github.com/mikeleewoodai/memory-champ",
+  "license": "MIT",
+  "keywords": ["memory", "mcp", "coala", "agents"]
+}

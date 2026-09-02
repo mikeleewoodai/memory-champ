@@ -1,0 +1,44 @@
+# memory-champ — local config for the Claude integration.
+#
+# Copy to ~/.memory-agent/claude.yaml and fill in. That directory sits outside
+# every checkout on purpose — the same reason policy.yaml and memory.db live
+# there: the store outlives the checkout, and moving between projects must not
+# move the memory. This file follows them, so it is never in a repo.
+#
+# Every key is optional. A missing file is a valid configuration: the skill
+# derives what it can and asks about the rest. Nothing here is ever guessed.
+
+version: 1
+
+# --- reaching the CLI -----------------------------------------------------
+# Only needed for signing approvals; every read and write goes over MCP.
+# Leave blank to derive: the MCP host config already names an interpreter that
+# provably has this package installed, and the policy path beside it.
+cli:
+  command: ""    # absolute path to memory-agent / memory-champ executable
+  policy: ""     # policy.yaml, passed as --policy (a root flag, before the subcommand)
+  reviewer: ""   # your reviewer id, exactly as it appears in policy.yaml
+  key: ""        # private key; blank means ~/.memory-agent/approval
+
+# --- which scope a directory belongs to -----------------------------------
+# The only thing here that cannot be derived. memory_stats tells you which
+# scopes exist and how big they are; it cannot tell you which one the work in
+# front of you belongs in.
+#
+# Keys are absolute directories, values are scope names matching
+# ^[a-z0-9][a-z0-9._-]{0,127}$. The longest matching prefix wins, so a
+# subdirectory inherits its parent's scope and a deeper entry overrides it.
+#
+#   "<drive>:/path/to/a-project": a-project
+#   "<drive>:/path/to/a-project/packages/api": a-project.api
+#   "<home>/src/another": another-scope
+scopes: {}
+
+# Used when nothing matches. Leave null — the skill then asks, which is the
+# point. A catch-all reintroduces silent misfiling with a config file's blessing.
+default_scope: null
+
+# --- session ritual -------------------------------------------------------
+ritual:
+  recall_on_start: true   # open with a recall against the resolved scope
+  open_cycle: true        # open a working cycle when there is a stated goal
