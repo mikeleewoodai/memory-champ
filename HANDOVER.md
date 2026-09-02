@@ -69,7 +69,7 @@ memory-agent stats --scope acme.crm
 4. §13 — the decision log. Every non-obvious choice with the tension behind it
 5. `BACKLOG.md` — B-1, the one thing blocking a work version
 
-## The eight things most likely to trip you up
+## The nine things most likely to trip you up
 
 1. **`content` is the only indexed field.** Nothing else is embedded or keyword-searchable. Writer-side invariant: whatever a future reader needs must appear in `content`, even if it also lives in a structured field. A procedure whose trigger is only in `procedural_attrs.trigger_text` will not be found.
 
@@ -113,6 +113,20 @@ memory-agent stats --scope acme.crm
    packaging block, `test_runtime_contracts_are_declared_as_package_data` is
    what stops the wheel silently shedding those files again.
 
+9. **The Claude skill has to travel in the wheel too, and only CI can see
+   whether it does.** `install-claude-code` copies
+   `integrations/claude/code-skill/memory-agent/` into the user's skills
+   directory. That directory lives outside `src/`, so it ships only because
+   `pyproject.toml` maps it in as `memory_agent.claude_skill` — with
+   `.references` declared as its own package, because `package-data` globs do
+   not recurse into a subdirectory of a non-package. Item 8 again, and worse in
+   one way: a missing `contracts/` kills the first database open loudly, while a
+   missing skill directory just means the install command has nothing to copy.
+   `test_skill_files_are_declared_as_package_data` guards the declaration; the
+   only thing that exercises the real behaviour is the CI `install` job running
+   a non-editable install from outside the checkout (requirement I9 in
+   `integrations/README.md`).
+
 ## Decisions already made — don't re-litigate without reason
 
 Full reasoning in spec §13. The headlines:
@@ -148,6 +162,7 @@ Container-specific; they may not apply locally, but they cost time here.
 - The system `cryptography` package was broken (`ModuleNotFoundError: _cffi_backend`); `pip install --force-reinstall cffi` fixed it.
 - `pip install` aborted on the Debian-managed `PyJWT`; `--ignore-installed PyJWT` worked around it.
 - No `sqlite3` CLI binary — use `python -c "import sqlite3; ..."`.
+- Claude Desktop's managed skills folder (under `local-agent-mode-sessions/skills-plugin/`) syncs and deletes files it did not install, between turns and without reporting it. A skill hand-written there looks installed and is gone by the next message. `install-claude-code` refuses that destination outright, `--force` included; the supported route for that host is the packaged plugin.
 
 ## If you want to keep going
 

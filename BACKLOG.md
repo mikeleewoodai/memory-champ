@@ -91,3 +91,76 @@ Two properties of this specific design raise the stakes:
 - `store.procedure_candidate()` reconstructs every covered field — verified by a test that fails if a covered field is missing from the reconstruction, rather than by reading the code
 - `PAYLOAD_VERSION` bumped, `regenerate_fixture.py` re-run, schema and spec updated
 - A test proves mutating each covered field breaks verification, so the next omission is caught by the suite rather than by hand
+
+---
+
+## B-3 — The two skills are kept in step by a checker, not a generator
+
+**Status:** open, deliberate · **Raised:** 2026-09-02 · **Trigger:** a third host, or a shared reference that diverges without I4 noticing
+
+`integrations/` ships two SKILL.md files, one per host, because they differ in
+capability: Cowork cannot read `~/.memory-agent/claude.yaml` and cannot run the
+CLI, so it cannot sign approvals. The parts that must never diverge — tool
+semantics and memory hygiene — are physically duplicated under each
+`references/`, and `verify.py` asserts the copies are byte-identical (I4).
+
+**The tension.** Generating one file from the other would guarantee sync, at the
+cost of shipping a file nobody proofreads before it goes out. A checker catches
+drift only in the parts that are duplicated: prose *inside* each SKILL.md can
+still contradict the other and nothing fails. That is accepted while there are
+two hosts and the bodies are short enough to read side by side.
+
+**Also carried here:** the skills' "never invent a scope" rule is a *mitigation*
+for B-1, not a fix. It reduces the chance an agent files into the wrong scope; it
+does nothing about a caller that names a scope deliberately. Re-read both skills
+when B-1 closes — some of their hedging becomes unnecessary, and some of it
+becomes wrong.
+
+### Definition of done
+
+- A third host exists, or drift is observed between the two bodies
+- Either a generator with a proofread step, or a check that compares the
+  *claims* in each body rather than only the shared files
+
+---
+
+## B-4 — A bare CLI run creates an empty store instead of refusing
+
+**Status:** open · **Raised:** 2026-09-02 · **Trigger:** anyone reporting "0 records" against a store that has records
+
+`Policy.load()` resolves explicit `--policy`, then `MEMORY_AGENT_POLICY`, then
+`$MEMORY_AGENT_HOME/policy.yaml`, and a miss at every step falls through to
+built-in defaults. That fallback is deliberate and documented — no config is a
+valid configuration — but the default `db_path` is `./memory.db`, relative to the
+process working directory. So a `--policy` pointing at a path that does not
+exist, a moved policy file, or a different `HOME` does not error: it creates an
+empty SQLite store inside whatever directory the command was run from and
+reports `records: 0 / queue: 0 pending`, while the real store sits untouched
+elsewhere.
+
+Observed in the wild: a 228 KB schema-only `memory.db` left inside an unrelated
+project's repo, one `git add .` away from being committed.
+
+**What not to do.** Making `Policy.load()` raise breaks a documented promise and
+breaks `conftest.py`, which constructs `Policy()` directly. Making `Store()`
+refuse to create files breaks every `tmp_path` test and the CI install job —
+`Store` cannot know whether its path was chosen or defaulted.
+
+**Shape of the fix.** Distinguish *defaulted* from *configured*: a
+`db_path_is_default` flag set False by `from_dict` whenever `storage.path` was
+present, and a `require_configured_store()` sibling of `require_reviewers()`
+that refuses only when the path was defaulted **and** does not exist **and** no
+policy file was found at any resolution point. Called from `cli._service()`,
+`server.main()` and `daemon.main()`. `:memory:` exempt unconditionally.
+`--allow-new-store` as the explicit override, because there is a legitimate
+first-run case and a guard with no escape hatch gets deleted.
+
+### Definition of done
+
+- **I10-bis** *accept:* with `MEMORY_AGENT_HOME` pointed at an empty temp dir and
+  the working directory a different empty temp dir, `memory-agent stats` exits
+  non-zero, names all three remedies (`init`, `--policy`, `MEMORY_AGENT_POLICY`),
+  and does not create `memory.db` in the working directory; with
+  `--allow-new-store` it exits 0 and the file is created
+- `verify.py` and `pytest -q` stay green with no test changes beyond the new one
+
