@@ -6,6 +6,7 @@ the signature, not the caller, is what the server trusts; this command exists so
 producing that signature is one line rather than a chore.
 
     memory-agent init                       # key + policy + host config, once
+    memory-agent install-claude-code        # /memory-agent in Claude Code
     memory-agent fingerprint ~/.memory-agent/approval.pub
     memory-agent review list --scope acme.crm
     memory-agent review approve p_01J9X2 --reviewer me --key ~/.memory-agent/approval
@@ -17,6 +18,7 @@ import argparse
 import getpass
 import json
 import os
+import shutil
 import sys
 import threading
 from datetime import datetime, timezone
@@ -26,6 +28,7 @@ from . import approval as A
 from .config import Policy, default_home
 from .errors import MemoryAgentError
 from .service import MemoryService
+from .skill_path import skill_files, skill_path
 
 
 def _require_bcrypt(what: str) -> None:
@@ -427,6 +430,119 @@ def cmd_install_claude_desktop(args) -> int:
     return 0
 
 
+def claude_code_skills_path() -> Path:
+    """Where Claude Code keeps user-level skills. Same on every platform."""
+    return Path.home() / ".claude" / "skills"
+
+
+# Claude Desktop syncs this directory and deletes anything it did not put there,
+# between turns, without reporting it. A skill written here looks installed and
+# is gone by the next message, which is a spectacularly confusing failure. The
+# supported route for that host is the packaged plugin, so refuse and say so.
+_MANAGED_MARKERS = ("local-agent-mode-sessions", "skills-plugin")
+
+
+def _skill_diff(source: Path, dest: Path, names: list[Path]) -> list[Path]:
+    """Which of `names` differ between source and dest, plus any stray .md."""
+    differing = [n for n in names
+                 if not (dest / n).is_file()
+                 or (dest / n).read_bytes() != (source / n).read_bytes()]
+    if dest.is_dir():
+        expected = set(names)
+        differing += [p.relative_to(dest) for p in sorted(dest.rglob("*.md"))
+                      if p.is_file() and p.relative_to(dest) not in expected]
+    return differing
+
+
+def cmd_install_claude_code(args) -> int:
+    """Copy the skill into Claude Code's skills directory.
+
+    The alternative — telling people to copy a directory by hand and re-copy it
+    after every change — is how the two copies drift, and a drifted skill is
+    worse than an absent one because it still answers. `--check` exists so drift
+    is detectable rather than discovered.
+
+    Same rules as install-claude-desktop: this is a directory the user owns and
+    did not hand us, so back up before overwriting, and refuse anything we did
+    not write ourselves rather than assuming it is ours to replace.
+    """
+    try:
+        source = skill_path()
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    base = Path(args.path).expanduser() if args.path else claude_code_skills_path()
+    dest = base / args.name
+    names = skill_files(source)
+
+    resolved = str(dest.resolve() if dest.exists() else dest).replace("\\", "/")
+    if all(m in resolved for m in _MANAGED_MARKERS):
+        print(f"{dest}\nis inside Claude Desktop's managed skills folder, which "
+              f"deletes files it did not install - a skill written there vanishes "
+              f"between turns.\nUse the Cowork plugin instead: python build_plugin.py",
+              file=sys.stderr)
+        return 1
+
+    if dest.exists() and not dest.is_dir():
+        print(f"{dest} exists and is not a directory; refusing to touch it.", file=sys.stderr)
+        return 1
+    # A junction or symlink points somewhere the user chose - plausibly the
+    # checkout itself. Writing through it would edit that target instead.
+    if dest.is_symlink() or (dest.is_dir() and os.path.islink(dest)):
+        print(f"{dest} is a link. Writing through it would modify its target "
+              f"instead of installing a copy; remove it first.", file=sys.stderr)
+        return 1
+
+    differing = _skill_diff(source, dest, names)
+
+    if args.check:
+        if not dest.exists():
+            print(f"{args.name} is not installed at {base}")
+            return 2
+        if differing:
+            print(f"{args.name} at {dest} has drifted:")
+            for n in differing:
+                print(f"  {n.as_posix()}")
+            return 1
+        print(f"{args.name} at {dest} matches this install ({len(names)} files)")
+        return 0
+
+    if dest.exists() and not differing:
+        print(f"{args.name} is already installed at {dest} - nothing to do.")
+        return 0
+
+    if args.dry_run:
+        print(f"--- would write {len(names)} file(s) to {dest} ---")
+        for n in names:
+            print(f"  {n.as_posix()}" + ("  (differs)" if n in differing else ""))
+        return 0
+
+    if dest.exists() and not args.force:
+        print(f"{dest} already exists and differs:", file=sys.stderr)
+        for n in differing:
+            print(f"  {n.as_posix()}", file=sys.stderr)
+        print("Refusing to overwrite edits that are not ours. Re-run with --force "
+              "to replace it (the current contents get backed up first).", file=sys.stderr)
+        return 1
+
+    if dest.exists():
+        backup = dest.with_name(f"{args.name}.bak-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
+        shutil.copytree(dest, backup)
+        print(f"backup:  {backup}")
+        shutil.rmtree(dest)
+
+    for n in names:
+        target = dest / n
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((source / n).read_bytes())
+
+    print(f"skill:   {dest}")
+    print(f"wrote:   {len(names)} file(s) from {source}")
+    print(f"\nRestart Claude Code, then run /{args.name} to check it registered.")
+    return 0
+
+
 def cmd_fingerprint(args) -> int:
     text = Path(args.path).expanduser().read_text(encoding="utf-8")
     pub = A.load_public_key(text)
@@ -589,6 +705,19 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--dry-run", action="store_true",
                    help="print the merged config instead of writing it")
     d.set_defaults(func=cmd_install_claude_desktop)
+
+    c = sub.add_parser("install-claude-code",
+                       help="copy the skill into Claude Code's skills directory")
+    c.add_argument("--path", help=f"skills dir (default: {claude_code_skills_path()})")
+    c.add_argument("--name", default="memory-agent",
+                   help="skill directory name, and the slash command it registers")
+    c.add_argument("--force", action="store_true",
+                   help="replace a destination that differs, backing it up first")
+    c.add_argument("--check", action="store_true",
+                   help="report drift without writing: 0 matches, 1 drifted, 2 absent")
+    c.add_argument("--dry-run", action="store_true",
+                   help="list the files instead of writing them")
+    c.set_defaults(func=cmd_install_claude_code)
 
     f = sub.add_parser("fingerprint", help="print a public key's key_id")
     f.add_argument("path")
