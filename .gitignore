@@ -12,3 +12,9 @@ dist/
 memory.db
 memory.db-*
 policy.yaml
+# the Claude integration's local config, for the same reason as policy.yaml:
+# it belongs in ~/.memory-agent/, and a copy that lands in a checkout carries
+# machine paths and project names into a public repo
+claude.yaml
+# build_plugin.py output, if someone points it at the repo
+*.plugin
