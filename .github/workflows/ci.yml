@@ -50,6 +50,31 @@ jobs:
         run: |
           memory-agent init --home "$RUNNER_TEMP/ma" --no-passphrase
           memory-champ --help > /dev/null
+      - name: the Claude skill must travel in the wheel
+        # integrations/README.md I9. This is the ONLY place the defect is
+        # visible: every in-repo test runs from the checkout, where the repo
+        # path resolves whether or not package-data was declared.
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          memory-agent install-claude-code --path "$RUNNER_TEMP/skills"
+          test -f "$RUNNER_TEMP/skills/memory-agent/SKILL.md"
+          test -n "$(ls "$RUNNER_TEMP/skills/memory-agent/references/"*.md)"
+          memory-agent install-claude-code --path "$RUNNER_TEMP/skills" --check
+      - name: the Cowork plugin must build into an installable bundle
+        # I10. build_plugin.py is the artefact that leaves the machine, and it
+        # runs its own publish-safety checks before writing the zip.
+        shell: bash
+        run: |
+          python build_plugin.py "$RUNNER_TEMP/dist"
+          python -c "
+          import glob, zipfile
+          bundle, = glob.glob('$RUNNER_TEMP/dist/*.plugin')
+          names = zipfile.ZipFile(bundle).namelist()
+          assert '.claude-plugin/plugin.json' in names, names
+          assert 'skills/memory-agent/SKILL.md' in names, names
+          print('plugin bundle OK')
+          "
       - name: store must open outside the checkout
         shell: bash
         working-directory: ${{ runner.temp }}

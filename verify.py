@@ -20,6 +20,7 @@ import os
 import re
 import sqlite3
 import sys
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAILURES: list[str] = []
@@ -400,6 +401,128 @@ def verify_policy():
         check(name, ok)
 
 
+
+# --------------------------------------------------------------------------
+# host integrations
+# --------------------------------------------------------------------------
+# A drive-rooted path in a shipped file is somebody's machine. The lookbehind
+# lets documentation say `<drive>:/path` while still catching a real one, which
+# always appears after a quote, a space, or the start of a line.
+ABSOLUTE_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]|/Users/|/home/")
+KEBAB = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+SCOPE_SHAPED = re.compile(r"scope[\"\x27]?\s*[:=]\s*[\"\x27]([^\"\x27]+)[\"\x27]"
+                          r"|--scope\s+([\w.<>-]+)")
+
+# Scope values that may appear in a shipped file. An allowlist rather than a
+# denylist of private names on purpose: a denylist would have to write down the
+# very names it exists to keep out of a public repo.
+PLACEHOLDER_SCOPES = {"<name>", "<scope>", "a-project", "a-project.api",
+                      "another-scope", "example", "your-scope"}
+
+
+def _frontmatter(path):
+    import yaml
+
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        return None
+    end = text.find("\n---\n", 4)
+    return yaml.safe_load(text[4:end]) if end != -1 else None
+
+
+def _project_urls():
+    """Homepage and Source out of pyproject, without tomllib.
+
+    verify.py runs on 3.10 in CI and tomllib landed in 3.11. Two keys out of a
+    flat table do not justify a dependency or a version gate.
+    """
+    text = open(p("pyproject.toml"), encoding="utf-8").read()
+    block = text.split("[project.urls]", 1)[1].split("\n[", 1)[0]
+    return dict(re.findall(r"^(\w+)\s*=\s*\"([^\"]+)\"", block, re.M))
+
+
+def verify_integrations(tools):
+    """Requirements I1-I6 in integrations/README.md.
+
+    Two different jobs. I1-I5 keep the shipped skills honest against the
+    contract and against each other. I6 keeps this public repo from carrying a
+    machine path or a real project name - the one failure here that cannot be
+    walked back once it is pushed.
+    """
+    import yaml
+
+    section("host integrations")
+    root = Path(p("integrations"))
+    skills = sorted(root.rglob("SKILL.md"))
+    check("both skills present", len(skills) == 2, f"found {len(skills)}")
+
+    tool_sets = []
+    for s in skills:
+        rel = s.relative_to(root).as_posix()
+        meta = _frontmatter(s)
+        ok = isinstance(meta, dict) and meta.get("name") and meta.get("description")
+        check(f"I1 {rel}: frontmatter carries name and description", bool(ok))
+        if not ok:
+            continue
+        name = meta["name"]
+        check(f"I1 {rel}: name is kebab-case and matches its directory",
+              bool(KEBAB.fullmatch(name)) and name == s.parent.name,
+              f"{name!r} vs dir {s.parent.name!r}")
+        tool_sets.append(set(re.findall(r"\bmemory_[a-z_]+\b",
+                                        s.read_text(encoding="utf-8"))))
+
+    defined = {t["name"] for t in tools["tools"]}
+    for s, named in zip(skills, tool_sets):
+        check(f"I3 {s.relative_to(root).as_posix()} invents no tools",
+              not named - defined, str(named - defined))
+    if len(tool_sets) == 2:
+        check("I3 both skills name the same tools", tool_sets[0] == tool_sets[1],
+              str(tool_sets[0] ^ tool_sets[1]))
+
+    manifest = root / "claude" / "cowork-plugin" / ".claude-plugin" / "plugin.json"
+    if check("I2 plugin manifest exists", manifest.is_file()):
+        meta = json.loads(manifest.read_text(encoding="utf-8"))
+        urls = _project_urls()
+        check("I2 plugin name is kebab-case", bool(KEBAB.fullmatch(meta.get("name", ""))))
+        check("I2 plugin version is semver",
+              bool(re.fullmatch(r"\d+\.\d+\.\d+", meta.get("version", ""))))
+        check("I2 plugin homepage matches pyproject", meta.get("homepage") == urls.get("Homepage"))
+        check("I2 plugin repository matches pyproject", meta.get("repository") == urls.get("Source"))
+
+    code_refs = root / "claude" / "code-skill" / "memory-agent" / "references"
+    plug_refs = root / "claude" / "cowork-plugin" / "skills" / "memory-agent" / "references"
+    shared = sorted({f.name for f in code_refs.glob("*.md")}
+                    & {f.name for f in plug_refs.glob("*.md")})
+    check(f"I4 {len(shared)} shared reference(s) to keep in step", len(shared) >= 2, str(shared))
+    for name in shared:
+        check(f"I4 {name} is byte-identical in both trees",
+              (code_refs / name).read_bytes() == (plug_refs / name).read_bytes())
+
+    cfg = yaml.safe_load((root / "claude" / "claude.example.yaml").read_text(encoding="utf-8"))
+    check("I5 example config parses at version 1", cfg.get("version") == 1)
+    check("I5 example ships no scopes", cfg.get("scopes") == {}, repr(cfg.get("scopes")))
+    check("I5 example sets no default_scope", cfg.get("default_scope") is None)
+    check("I5 example cli block is entirely blank",
+          all(v == "" for v in (cfg.get("cli") or {}).values()), repr(cfg.get("cli")))
+
+    paths, named_scopes = [], []
+    for f in sorted(root.rglob("*")):
+        if not f.is_file():
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        rel = f.relative_to(root).as_posix()
+        paths += [f"{rel}: {h}" for h in ABSOLUTE_PATH.findall(text)]
+        named_scopes += [f"{rel}: {a or b}" for a, b in SCOPE_SHAPED.findall(text)
+                         if (a or b) not in PLACEHOLDER_SCOPES]
+    check(f"I6a no absolute local path in {len(list(root.rglob('*.md')))} shipped file(s)",
+          not paths, str(paths[:3]))
+    check("I6b no real scope name in a scope-shaped position", not named_scopes,
+          str(named_scopes[:3]))
+
+
 def main() -> int:
     print("memory-agent contract verification")
     try:
@@ -414,6 +537,7 @@ def main() -> int:
     verify_signature(ex)
     verify_docs(tools)
     verify_policy()
+    verify_integrations(tools)
 
     print("\n" + "=" * 62)
     if FAILURES:
