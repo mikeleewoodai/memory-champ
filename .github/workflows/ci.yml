@@ -67,9 +67,13 @@ jobs:
         shell: bash
         run: |
           python build_plugin.py "$RUNNER_TEMP/dist"
+          # Read the path from the environment rather than interpolating it into
+          # the Python source. On Windows RUNNER_TEMP looks like D:\a\_temp,
+          # and inside a Python string literal that backslash-a is a BEL escape: the
+          # glob then matches nothing, and only the Windows cell fails.
           python -c "
-          import glob, zipfile
-          bundle, = glob.glob('$RUNNER_TEMP/dist/*.plugin')
+          import glob, os, zipfile
+          bundle, = glob.glob(os.path.join(os.environ['RUNNER_TEMP'], 'dist', '*.plugin'))
           names = zipfile.ZipFile(bundle).namelist()
           assert '.claude-plugin/plugin.json' in names, names
           assert 'skills/memory-agent/SKILL.md' in names, names
