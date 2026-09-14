@@ -76,11 +76,22 @@ class SentenceTransformerEmbedder:
     """
 
     def __init__(self, model: str = "all-MiniLM-L6-v2"):
+        from huggingface_hub import constants as hub_constants  # noqa: PLC0415
         from sentence_transformers import SentenceTransformer  # noqa: PLC0415
 
+        # local_files_only is not offline. hf_hub_download builds request headers
+        # before it checks that flag, and the user-agent fetches the Hub's
+        # agent-harness registry whenever HF_HOME/.agent_harnesses.json is missing
+        # or a day old - so a cached model still reached the network about once a
+        # day. Offline mode is what that fetch honours. Set on the module, not via
+        # the env var, which is read only at import; undone only when the model is
+        # not cached, so a first run can still download. Spec §13.
+        was_offline = hub_constants.HF_HUB_OFFLINE
+        hub_constants.HF_HUB_OFFLINE = True
         try:
             self._model = SentenceTransformer(model, local_files_only=True)
         except Exception:
+            hub_constants.HF_HUB_OFFLINE = was_offline
             log.info("%s is not cached; downloading from Hugging Face (first run only)", model)
             self._model = SentenceTransformer(model)
         self.name = model
