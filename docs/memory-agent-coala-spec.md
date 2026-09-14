@@ -601,6 +601,9 @@ Numbered, testable, and written against the defaults in `policy.example.yaml`.
 **NF10 — Versioned.** A record written by v1.0 is readable by any 1.x.
 *accept:* Every record and payload carries `schema_version`; the server refuses to open a DB whose `meta.schema_version` has a higher major version than the code.
 
+**NF11 — Connects before it loads.** The MCP handshake does not wait for the embedding model; a tool call made while the model is still loading waits for it rather than failing.
+*accept:* With the service build held open, the server lists all nine tools, and a `memory_stats` call made during the hold returns `counts` once the build is released.
+
 ---
 
 ## 11. Failure modes
@@ -685,6 +688,7 @@ Consolidation quality is unproven until there is real traffic.
 | Local embeddings by default | Hosted models embed better | Offline operation and no memory content leaving the machine. Memory contains whatever hosts put in it, which may be personal |
 | `max_records` mandatory on forget | An extra required parameter is friction | It is friction on the one irreversible operation. A selector matching more than expected is a bug, and this turns it into an abort rather than a data-loss event |
 | No grounding actions, ever | A memory agent that could fetch a URL to verify a fact would be more capable | It is the property that makes this safe to attach to any orchestration. Capability here buys little and costs the one guarantee worth having |
+| The service loads behind the MCP handshake, not before it | Building it before stdio opens means "connected" implies "can serve", and a store that will not open kills the process where the host marks it failed | The build is the torch import and the model load — 11.6s on an idle machine, and past Claude Code's 30s connect limit on about a third of real starts. A server that never connects serves nothing. Reviewer keys are still checked before stdio opens; only the model and store load behind it, and a failure there returns an error on every call, so the reason reaches the caller instead of only a host log |
 
 ---
 

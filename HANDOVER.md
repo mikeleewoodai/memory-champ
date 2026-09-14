@@ -69,7 +69,7 @@ memory-agent stats --scope acme.crm
 4. §13 — the decision log. Every non-obvious choice with the tension behind it
 5. `BACKLOG.md` — B-1, the one thing blocking a work version
 
-## The nine things most likely to trip you up
+## The ten things most likely to trip you up
 
 1. **`content` is the only indexed field.** Nothing else is embedded or keyword-searchable. Writer-side invariant: whatever a future reader needs must appear in `content`, even if it also lives in a structured field. A procedure whose trigger is only in `procedural_attrs.trigger_text` will not be found.
 
@@ -126,6 +126,18 @@ memory-agent stats --scope acme.crm
    only thing that exercises the real behaviour is the CI `install` job running
    a non-editable install from outside the checkout (requirement I9 in
    `integrations/README.md`).
+
+10. **Nothing slow goes in front of the MCP handshake.** Building
+    `MemoryService` imports torch and loads the model — 11.6s on an idle
+    Windows machine. `_run` used to do that before opening stdio, so
+    `initialize` waited for it, and Claude Code's 30s connect limit cut off
+    about a third of real starts. A host that gives up on a slow handshake
+    reports the server as *failed*, not slow, so it reads as a registration
+    problem. `_run` now builds the service behind `_LoadingService` on a
+    background thread: `initialize` answers in about 1.3s, and tool calls wait
+    for the build. New startup work belongs in `_build_service`, not `_run`.
+    `test_nf11_…` guards the waiting, not where `_run` puts the build, so
+    re-time `initialize` against a real spawn after touching startup.
 
 ## Decisions already made — don't re-litigate without reason
 

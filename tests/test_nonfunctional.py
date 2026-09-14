@@ -349,6 +349,77 @@ def test_the_mcp_handler_layer_actually_dispatches(svc):
     asyncio.run(exercise())
 
 
+def test_nf11_tools_answer_before_the_service_has_loaded(svc):
+    """NF11. The handshake must not wait for the embedder; tool calls must.
+
+    `_run` used to build MemoryService - the torch import and the model load -
+    before opening stdio, so `initialize` went unanswered for 10-30s and Claude
+    Code dropped the server at its 30s connect limit on about a third of starts.
+    Crosses the same seam as the test above: the SDK handlers as registered, over
+    a service that does not exist yet.
+    """
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsRequest
+
+    from memory_agent.server import _LoadingService, build_server
+
+    release = threading.Event()
+
+    def slow_build():
+        assert release.wait(10), "the test never released the build"
+        return svc
+
+    loading = _LoadingService(slow_build)
+    server = build_server(loading)
+    if not hasattr(server, "get_request_handler"):
+        pytest.skip("1.x decorator API; dispatch is owned by the SDK there")
+    loading.start()
+
+    listed_h = server.get_request_handler(ListToolsRequest.model_fields["method"].default)
+    call_h = server.get_request_handler(CallToolRequest.model_fields["method"].default)
+
+    async def exercise():
+        listed = await asyncio.wait_for(listed_h.handler(None, None), 1)
+        assert {t.name for t in listed.tools} == TOOL_NAMES
+
+        call = asyncio.ensure_future(
+            call_h.handler(None, CallToolRequestParams(name="memory_stats", arguments={})))
+        await asyncio.sleep(0.2)
+        assert not call.done(), "a call made mid-load must wait for the service, not fail"
+
+        release.set()
+        result = await asyncio.wait_for(call, 10)
+        assert not getattr(result, "isError", getattr(result, "is_error", False))
+        assert "counts" in json.loads(result.content[0].text)
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()  # never leave the loader blocked if an assertion fired first
+
+
+def test_a_service_that_fails_to_load_says_so_on_every_call():
+    """A build failure must neither hang callers nor be blamed on their arguments.
+
+    `_dispatch` maps TypeError to INVALID_ARGUMENTS, so a startup TypeError
+    re-raised as-is would tell the caller its arguments were wrong when the
+    server never started.
+    """
+    from memory_agent.server import _dispatch, _LoadingService
+
+    def broken_build():
+        raise TypeError("store would not open")
+
+    loading = _LoadingService(broken_build)
+    loading.start()
+    for _ in range(2):  # the failure is sticky, not a one-shot
+        result = _dispatch(loading, "memory_stats", {})
+        assert result["error"] == "INTERNAL"
+        assert "failed to start" in result["message"]
+
+
 def test_nf4_real_embedder_loads_with_the_network_blocked(monkeypatch):
     """The README's first claim is "It never reaches the network." Test it.
 

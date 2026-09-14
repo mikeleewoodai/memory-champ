@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -208,6 +209,62 @@ def build_server(service: MemoryService):
     return server
 
 
+class _LoadingService:
+    """A MemoryService still being built, so the MCP handshake need not wait for it.
+
+    Building the service imports sentence-transformers and loads the model -
+    11.6s measured on an idle Windows machine, most of it the torch import, and
+    longer when several sessions start at once. `_run` used to do that before
+    opening stdio, so `initialize` went unanswered the whole time, and Claude
+    Code abandons a server that has not connected in 30s. Across six days of
+    logs about a third of starts hit that limit.
+
+    The handshake needs only the contract. Tool calls reach the service through
+    attribute access, which waits here until the build finishes; `_dispatch`
+    runs off the event loop, so the wait never stalls the transport.
+    """
+
+    def __init__(self, build):
+        self._build = build
+        self._ready = threading.Event()
+        self._service: MemoryService | None = None
+        self._failure: BaseException | None = None
+
+    def start(self) -> None:
+        threading.Thread(target=self._load, name="memory-agent-load", daemon=True).start()
+
+    def _load(self) -> None:
+        try:
+            self._service = self._build()
+        except BaseException as exc:  # recorded and reported on every call, never swallowed
+            log.exception("memory service failed to start")
+            self._failure = exc
+        finally:
+            self._ready.set()
+
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            # Only public service methods are proxied. A private name landing
+            # here is missing from this class, and waiting on it would hang.
+            raise AttributeError(name)
+        self._ready.wait()
+        if isinstance(self._failure, MemoryAgentError):
+            raise self._failure
+        if self._failure is not None:
+            # Not re-raised as-is: _dispatch maps TypeError to INVALID_ARGUMENTS,
+            # which would blame the caller's arguments for a server that never started.
+            raise MemoryAgentError(f"memory service failed to start: {self._failure!r}")
+        return getattr(self._service, name)
+
+
+def _build_service(policy: Policy) -> MemoryService:
+    service = MemoryService(policy)
+    log.info("memory-agent ready: db=%s vector=%s embedder=%s reviewers=%d",
+             policy.db_path, service.store.vector_ok, service.embedder.name,
+             len(policy.learning.approval.reviewers))
+    return service
+
+
 async def _run() -> None:
     from mcp.server.stdio import stdio_server
 
@@ -217,11 +274,12 @@ async def _run() -> None:
     )
     policy = Policy.load()
     policy.require_reviewers()  # fail at startup, not at the first approval
-    service = MemoryService(policy)
-    log.info("memory-agent ready: db=%s vector=%s embedder=%s reviewers=%d",
-             policy.db_path, service.store.vector_ok, service.embedder.name,
-             len(policy.learning.approval.reviewers))
+    service = _LoadingService(lambda: _build_service(policy))
     server = build_server(service)
+    # Load only once build_server has imported the SDK on this thread. The loader
+    # imports packages the SDK also uses, and Python settles a cross-thread import
+    # deadlock by handing one side a half-initialised module.
+    service.start()
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 
