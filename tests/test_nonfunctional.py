@@ -420,41 +420,69 @@ def test_a_service_that_fails_to_load_says_so_on_every_call():
         assert "failed to start" in result["message"]
 
 
-def test_nf4_real_embedder_loads_with_the_network_blocked(monkeypatch):
+def test_nf4_real_embedder_loads_with_the_network_blocked(monkeypatch, tmp_path):
     """The README's first claim is "It never reaches the network." Test it.
 
     The structural guard above greps our own imports and could never have seen
     the violation: `SentenceTransformer(name)` revalidated an already-cached
     model against Hugging Face on every construction, so every CLI command and
-    every server start made an outbound request. Blocking sockets is what the
-    claim actually says, so that is what this asserts.
+    every server start made an outbound request.
+
+    `local_files_only` closed that and left a second leak, which the first
+    version of this test missed twice over. `hf_hub_download` builds its headers
+    before it checks the flag, and building the user-agent fetches
+    huggingface_hub's agent-harness registry whenever its copy on disk is
+    missing or a day old. So the request came and went with the mtime of a
+    shared cache file, usually fresh on a test run. And on a run where it did
+    fire, the AssertionError raised to block it landed in two `except Exception`
+    blocks inside huggingface_hub, so a blocked request read as a pass.
+
+    Hence: force the condition instead of hoping for it, and RECORD every
+    attempt. Each is then refused with the OSError a machine with no network
+    raises, so nothing leaves the host, but the verdict is the record - never
+    whether an exception made it back out of library code.
 
     A genuine first run is still allowed to download - refusing would be worse
     than a slow start - so this skips when nothing is cached.
     """
     pytest.importorskip("sentence_transformers")
+    from huggingface_hub import constants
+    from huggingface_hub.utils import _detect_agent
 
-    try:
-        from huggingface_hub import constants
-        cache = Path(constants.HF_HUB_CACHE)
-    except Exception:
-        cache = Path.home() / ".cache" / "huggingface" / "hub"
-    if not cache.exists() or not any(cache.glob("models--sentence-transformers--*")):
-        pytest.skip("no cached sentence-transformers model; first run may download")
+    if not any(Path(constants.HF_HUB_CACHE).glob("models--sentence-transformers--all-MiniLM-L6-v2")):
+        pytest.skip("all-MiniLM-L6-v2 is not cached; a first run may download")
+
+    # The registry fetch fires only when all three hold. setattr raises on a
+    # missing name, so if huggingface_hub moves them this fails loudly rather
+    # than leaving a test whose trigger can no longer fire.
+    monkeypatch.setattr(_detect_agent, "_registry", None)  # nothing resolved in-process
+    monkeypatch.setattr(constants, "AGENT_HARNESSES_PATH",
+                        str(tmp_path / ".agent_harnesses.json"))  # no copy on disk
+    monkeypatch.setattr(constants, "HF_HUB_OFFLINE", False)  # not already offline
 
     import socket
 
-    def deny(*args, **kwargs):
-        raise AssertionError(
-            "loading the embedder opened a network connection; the offline "
-            "guarantee is broken (check local_files_only in "
-            "SentenceTransformerEmbedder)")
+    attempts: list[str] = []
 
-    monkeypatch.setattr(socket.socket, "connect", deny)
-    monkeypatch.setattr(socket.socket, "connect_ex", deny)
-    monkeypatch.setattr(socket, "create_connection", deny)
+    def record(name):
+        def refuse(*args, **kwargs):
+            target = tuple(a for a in args if not isinstance(a, socket.socket))
+            attempts.append(f"{name}{target}")
+            raise OSError(f"network refused by test: {name}")
+        return refuse
+
+    monkeypatch.setattr(socket.socket, "connect", record("socket.connect"))
+    monkeypatch.setattr(socket.socket, "connect_ex", record("socket.connect_ex"))
+    monkeypatch.setattr(socket, "create_connection", record("socket.create_connection"))
+    # a DNS lookup is an outbound request in its own right, and precedes any connect
+    monkeypatch.setattr(socket, "getaddrinfo", record("socket.getaddrinfo"))
 
     from memory_agent.embedding import SentenceTransformerEmbedder
 
     embedder = SentenceTransformerEmbedder("all-MiniLM-L6-v2")
-    assert len(embedder.embed(["offline"])[0]) == embedder.dimensions
+    vector = embedder.embed(["offline"])[0]
+
+    assert attempts == [], (
+        f"loading a cached model reached for the network: {attempts}. The offline "
+        "guarantee is broken; see the offline switch in SentenceTransformerEmbedder")
+    assert len(vector) == embedder.dimensions

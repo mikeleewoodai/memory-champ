@@ -69,7 +69,7 @@ memory-agent stats --scope acme.crm
 4. §13 — the decision log. Every non-obvious choice with the tension behind it
 5. `BACKLOG.md` — B-1, the one thing blocking a work version
 
-## The ten things most likely to trip you up
+## The eleven things most likely to trip you up
 
 1. **`content` is the only indexed field.** Nothing else is embedded or keyword-searchable. Writer-side invariant: whatever a future reader needs must appear in `content`, even if it also lives in a structured field. A procedure whose trigger is only in `procedural_attrs.trigger_text` will not be found.
 
@@ -139,6 +139,21 @@ memory-agent stats --scope acme.crm
     `test_nf11_…` guards the waiting, not where `_run` puts the build, so
     re-time `initialize` against a real spawn after touching startup.
 
+11. **`local_files_only` is not offline.** It decides which files load, not
+    which requests fire. `hf_hub_download` builds its headers before checking
+    it, and building the user-agent fetches the Hub's agent-harness registry
+    whenever `HF_HOME/.agent_harnesses.json` is missing or a day old. So a
+    cached model reached `huggingface.co` about once a day, keyed to a file
+    any process using huggingface_hub can refresh, and a clean spawn proved
+    nothing. `SentenceTransformerEmbedder` now switches
+    `huggingface_hub.constants.HF_HUB_OFFLINE` on for the local load and
+    leaves it on. The NF4 test missed it two ways, and both apply to any
+    "never does X" test: it raised `AssertionError` into library code that
+    swallows exceptions, and it ran under whatever cache state happened to
+    exist. It now forces the condition and asserts on a record of attempts.
+    To reproduce by hand, point `HF_HOME` at an empty directory and
+    `HF_HUB_CACHE` at the real model cache.
+
 ## Decisions already made — don't re-litigate without reason
 
 Full reasoning in spec §13. The headlines:
@@ -164,7 +179,7 @@ Also open, all with stated consequences in spec §12: A-2 (single-writer), A-4 (
 - **`HashingEmbedder` is lexical only.** It exists so the service runs and is testable offline. Install `sentence-transformers` for real semantic recall; the daemon re-embeds automatically when the model name changes.
 - **No real tokenizer in this environment**, so `TokenCounter` fell back to a conservative over-estimate. That keeps the F1 budget guarantee (an upper bound) but returns slightly less memory than it could. Install `tiktoken` locally for exact counts.
 - **NF1's latency benchmark ran at 2k records, not the 100k the spec names.** It passes with headroom; re-run at full scale locally before trusting the number.
-- **NF5 is checked structurally** (no network imports, `openWorldHint` false) rather than by tracing syscalls. The strong claim in the spec deserves a real trace at some point.
+- **NF5 is traced only for the embedder load.** The NF4 test records every socket and DNS call while the real model loads, with huggingface_hub's own request triggers forced (item 11). The rest of the process is checked structurally — no network imports, `openWorldHint` false. A traced spawn of the real server is what the spec's claim deserves; it was done once by hand on 2026-09-14 and is not in the suite.
 
 ## Environment notes from the session that built this
 
