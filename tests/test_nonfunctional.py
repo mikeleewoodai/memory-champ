@@ -174,8 +174,8 @@ def test_nf5_no_module_imports_a_network_client():
     It reads our own modules, so it can only see our own imports. It stayed
     green while `SentenceTransformer(name)` contacted Hugging Face on every
     construction, because that call lives two layers down in a dependency.
-    `test_nf4_real_embedder_loads_with_the_network_blocked` is the one that
-    actually tests the claim; this catches the accidental `import requests`
+    `test_nf5_the_registered_server_makes_no_outbound_connection` is the one
+    that actually tests the claim; this catches the accidental `import requests`
     that would start the drift.
     """
     src = Path(__file__).resolve().parents[1] / "src" / "memory_agent"
@@ -185,6 +185,263 @@ def test_nf5_no_module_imports_a_network_client():
         text = path.read_text(encoding="utf-8")
         for token in banned:
             assert token not in text, f"{path.name} imports {token}"
+
+
+# Installed as sitecustomize.py ahead of src/ on the spawned server's PYTHONPATH,
+# so it is in place before the server imports anything that could open a socket.
+_NETWORK_TRACE_HOOK = r'''
+import ipaddress
+import json
+import os
+import socket
+import sys
+import threading
+
+_TRACE = os.environ["NF5_TRACE"]
+_AF_UNIX = getattr(socket, "AF_UNIX", object())
+_lock = threading.Lock()
+
+
+def _write(entry):
+    with _lock, open(_TRACE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def _host(address):
+    return address[0] if isinstance(address, tuple) and address else address
+
+
+def _local(host, family=None):
+    # None asks for a passive (bind) lookup and an AF_UNIX address is a path;
+    # neither leaves the machine. Loopback must pass: on Windows asyncio's
+    # self-pipe is a socketpair built by connecting to 127.0.0.1.
+    if host is None or family == _AF_UNIX:
+        return True
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(str(host).split("%")[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def _refuse(call, target):
+    # Recorded before raising: the verdict is this file, never whether the
+    # OSError makes it back out of library code that swallows exceptions.
+    _write({"refused": call, "target": repr(target)})
+    raise OSError(f"network refused by the NF5 trace: {call} {target!r}")
+
+
+_create_connection = socket.create_connection
+
+
+def _create_connection_traced(address, *args, **kwargs):
+    if not _local(_host(address)):
+        _refuse("socket.create_connection", address)
+    return _create_connection(address, *args, **kwargs)
+
+
+socket.create_connection = _create_connection_traced
+
+
+def _trace_connect(name):
+    original = getattr(socket.socket, name)
+
+    def traced(self, address):
+        if not _local(_host(address), self.family):
+            _refuse(f"socket.socket.{name}", address)
+        return original(self, address)
+
+    setattr(socket.socket, name, traced)
+
+
+_trace_connect("connect")
+_trace_connect("connect_ex")
+
+_getaddrinfo = socket.getaddrinfo
+
+
+def _getaddrinfo_traced(host, *args, **kwargs):
+    if not _local(host):
+        _refuse("socket.getaddrinfo", (host, *args[:1]))
+    return _getaddrinfo(host, *args, **kwargs)
+
+
+socket.getaddrinfo = _getaddrinfo_traced
+
+# Backstop for callers that bypass the names above: `_socket` used directly, or a
+# resolver that is not wrapped. CPython raises these events from C. A wrapped
+# call is refused before it gets there, so nothing is recorded twice.
+_RESOLVERS = {"socket.getaddrinfo", "socket.gethostbyname",
+              "socket.gethostbyaddr", "socket.getnameinfo"}
+
+
+def _audit(event, args):
+    if event in ("socket.connect", "socket.sendto"):
+        if not _local(_host(args[1]), args[0].family):
+            _refuse(f"audit {event}", args[1])
+    elif event in _RESOLVERS and not _local(_host(args[0])):
+        _refuse(f"audit {event}", args[0])
+
+
+sys.addaudithook(_audit)
+_write({"loaded": os.getpid()})
+'''
+
+
+@pytest.mark.slow
+def test_nf5_the_registered_server_makes_no_outbound_connection(tmp_path):
+    """NF5, traced in a real server process rather than inside pytest.
+
+    The NF4 test proves one call stays off the network - the model load - with
+    sockets patched in the test process. Everything else a real start does goes
+    unwatched there: the interpreter and module `init` registers, the MCP SDK
+    and its transport, the handshake, the background build, a tool call. So this
+    spawns exactly the command `init` prints, with a sitecustomize hook in place
+    before the server imports anything, and huggingface_hub's registry fetch
+    forced the way the NF4 test forces it (HANDOVER item 11). The hook records
+    every non-loopback connect and DNS lookup and refuses it with the OSError an
+    offline machine raises; the verdict is the record.
+
+    An empty record means nothing unless three things hold, so each is asserted
+    first: the hook loaded; the server logged the real model as its embedder - a
+    failed load falls back to hashing without a word, and a server that never
+    loads the model never reaches for the Hub; and the tool call succeeded.
+
+    Blind spots: native code opening its own sockets, and an asyncio proactor
+    connect to an IP literal, which raises no audit event. The file-handle half
+    of NF5 is not traced. Spec §13.
+    """
+    import importlib.util
+    import os
+    import queue
+    import subprocess
+    import sys
+
+    if importlib.util.find_spec("sentence_transformers") is None:
+        pytest.skip("sentence-transformers is not installed; no model load to trace")
+    pytest.importorskip("mcp")
+    from huggingface_hub import constants
+    from mcp.types import LATEST_PROTOCOL_VERSION
+
+    model_cache = constants.HF_HUB_CACHE
+    if not any(Path(model_cache).glob("models--sentence-transformers--all-MiniLM-L6-v2")):
+        pytest.skip("all-MiniLM-L6-v2 is not cached; a first run may download")
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    home = tmp_path / "home"
+    # Inherited settings could make the trace vacuous (HF_HUB_OFFLINE=1), hide the
+    # ready line (MEMORY_AGENT_LOG), or aim the server at the real store.
+    inherited = ("HF_", "HUGGINGFACE_", "TRANSFORMERS_", "SENTENCE_TRANSFORMERS_", "MEMORY_AGENT_")
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(inherited)}
+    env.update(MEMORY_AGENT_HOME=str(home), PYTHONPATH=str(src))
+
+    def run_python(code):
+        done = subprocess.run([sys.executable, "-c", code], env=env, cwd=tmp_path,
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=120)
+        assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+        return done.stdout.decode("utf-8", "replace")
+
+    printed = run_python("import sys; from memory_agent.cli import main; "
+                         "sys.exit(main(['init', '--id', 'e2e', '--no-passphrase']))")
+    (registered,) = json.loads(printed[printed.index("\n{") + 1:])["mcpServers"].values()
+
+    db_path, provider, model = json.loads(run_python(
+        "import json; from memory_agent.config import Policy; p = Policy.load(); "
+        "print(json.dumps([p.db_path, p.embedding_provider, p.embedding_model]))"))
+    assert Path(db_path).resolve().is_relative_to(home.resolve()), \
+        f"the server would open {db_path}, outside this test's home"
+    assert (provider, model) == ("sentence-transformers", "all-MiniLM-L6-v2")
+
+    hf_home = tmp_path / "hf-home"
+    hf_home.mkdir()
+    registry = hf_home / ".agent_harnesses.json"
+    registry.write_text(json.dumps({"standardEnvVars": [], "harnesses": {}}), encoding="utf-8")
+    stale = time.time() - 25 * 3600  # huggingface_hub refetches past 24h
+    os.utime(registry, (stale, stale))
+
+    hook_dir = tmp_path / "hook"
+    hook_dir.mkdir()
+    (hook_dir / "sitecustomize.py").write_text(_NETWORK_TRACE_HOOK, encoding="utf-8")
+    trace = tmp_path / "network-trace.jsonl"
+    stderr_log = tmp_path / "server-stderr.log"
+    server_env = {**env, "HF_HOME": str(hf_home), "HF_HUB_CACHE": model_cache,
+                  "NF5_TRACE": str(trace),
+                  "PYTHONPATH": os.pathsep.join([str(hook_dir), str(src)])}
+
+    with open(stderr_log, "wb") as stderr:
+        proc = subprocess.Popen([registered["command"], *registered["args"]], env=server_env,
+                                cwd=tmp_path, stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=stderr)
+    replies: queue.Queue = queue.Queue()
+
+    def pump():
+        for line in proc.stdout:
+            replies.put(line)
+        replies.put(None)  # stdout closed: the server has exited
+
+    pumping = threading.Thread(target=pump, daemon=True)
+    pumping.start()
+
+    def server_log():
+        return stderr_log.read_text(encoding="utf-8", errors="replace")
+
+    def send(message):
+        proc.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
+        proc.stdin.flush()
+
+    def reply(request_id, timeout):
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                line = replies.get(timeout=max(0.0, deadline - time.monotonic()))
+            except queue.Empty:
+                line = None
+            if line is None:
+                pytest.fail(f"no reply to request {request_id} (exit code {proc.poll()})\n"
+                            f"{server_log()[-3000:]}")
+            message = json.loads(line)
+            if message.get("id") == request_id:
+                return message
+
+    try:
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": LATEST_PROTOCOL_VERSION, "capabilities": {},
+                         "clientInfo": {"name": "nf5-trace", "version": "1"}}})
+        assert "result" in reply(1, 60)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+              "params": {"name": "memory_stats", "arguments": {}}})
+        called = reply(2, 300)  # answered after the build (NF11), so the load is traced too
+        proc.stdin.close()
+        proc.wait(timeout=60)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        pumping.join(10)
+        proc.stdout.close()
+
+    records = ([json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
+               if trace.exists() else [])
+    assert any("loaded" in r for r in records), \
+        f"the trace hook never loaded, so an empty record proves nothing\n{server_log()[-3000:]}"
+
+    ready = [line for line in server_log().splitlines() if "memory-agent ready" in line]
+    assert ready and "embedder=all-MiniLM-L6-v2" in ready[-1], (
+        "the server never loaded the real model, so it had no cause to reach the Hub\n"
+        f"{server_log()[-3000:]}")
+
+    assert "result" in called, called
+    assert not called["result"].get("isError"), called
+    assert "counts" in json.loads(called["result"]["content"][0]["text"]), called
+
+    attempts = [r for r in records if "refused" in r]
+    assert attempts == [], (
+        f"the registered server reached for the network: {attempts}. NF5 is broken; for "
+        "huggingface.co, see the offline switch in SentenceTransformerEmbedder")
 
 
 # ===========================================================================
