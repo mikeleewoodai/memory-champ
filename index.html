@@ -636,7 +636,8 @@
     <div class="card">
       <h3 style="color:var(--euc-mid)">What it deliberately can't do</h3>
       <ul class="tick cross">
-        <li>No <b>network</b>. Ever.</li>
+        <li>No <b>network</b>. The one exception is opt-in: install semantic embeddings and the
+          first run downloads the model, once.</li>
         <li>No <b>filesystem</b> outside its own database.</li>
         <li>No talking to a user, no sending anything anywhere.</li>
         <li>No deleting by default — bytes only go away on an explicit hard delete with
@@ -698,8 +699,8 @@
           <dt>independent</dt><dd>A daemon runs the same CoALA cycle over the store with no host
             attached, consolidating and pruning on a schedule.
             <code>memory-agent-daemon --once</code>.</dd>
-          <dt>degradation</dt><dd>Only <code>cryptography</code> and <code>PyYAML</code> are hard
-            requirements. No <code>sqlite-vec</code> → keyword-only recall that announces itself. No
+          <dt>degradation</dt><dd>Only <code>cryptography</code>, <code>PyYAML</code>, and
+            <code>bcrypt</code> are hard requirements. No <code>sqlite-vec</code> → keyword-only recall that announces itself. No
             <code>sentence-transformers</code> → built-in hashing embedder (lexical overlap only).
             No <code>tiktoken</code> → a conservative token bound.</dd>
         </dl>
@@ -751,7 +752,8 @@
           the signature, not the caller.</b> An agent can relay an approval you produced. It cannot
           produce one.</p>
         <div class="note warn" style="margin-top:4px">
-          <p><b>Use <code>--passphrase</code> at keygen.</b> The security claim is “the agent holds the
+          <p><b>Keep the passphrase.</b> <code>init</code> asks for one by default, and
+            <code>--no-passphrase</code> skips it. The security claim is “the agent holds the
             tool but not the key” — and the usual deployment is an agent with shell access <i>on the
             same machine as the key</i>. An unencrypted private key at a predictable path lets it sign
             its own approvals, which is the exact thing the gate exists to prevent.</p>
@@ -763,7 +765,7 @@
       <summary>Verification — how you know it works</summary>
       <div class="body">
         <dl class="kv">
-          <dt>verify.py</dt><dd>132 contract checks — JSON Schemas validated, DDL actually executed,
+          <dt>verify.py</dt><dd>The contract checks — JSON Schemas validated, DDL actually executed,
             and the published approval signature in <code>contracts/examples/records.json</code>
             re-verified. That fixture is the golden test for the signing code.</dd>
           <dt>pytest -q</dt><dd>One test per numbered acceptance criterion, asserting the
@@ -844,25 +846,51 @@
 <!-- ================= INSTALL ================= -->
 <section id="get-it">
   <p class="eyebrow">Get it</p>
-  <h2>Two commands</h2>
-  <p class="lede">The second one prints the host config you paste in — key, policy, and MCP block,
-    with the interpreter path already resolved.</p>
+  <h2>Install in four steps</h2>
+  <p class="lede">You need Python 3.10 or newer and nothing else — no git, no pipx. It is not on
+    PyPI; it installs straight from GitHub.</p>
 
-  <pre class="cmd"><span class="c"># nothing to install first - venv and pip ship with Python</span>
-<b>python -m venv</b> ~/memory-champ-venv
-<b>~/memory-champ-venv/bin/pip install</b> "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
-<b>~/memory-champ-venv/bin/memory-agent init --no-passphrase</b></pre>
+  <h3 style="margin:24px 0 10px">1 · Install into a virtual environment</h3>
+  <pre class="cmd"><span class="c"># macOS / Linux</span>
+<b>python3 -m venv</b> ~/memory-champ-venv
+<b>~/memory-champ-venv/bin/pip install</b> "memory-champ[recommended] @ https://github.com/mikeleewoodai/memory-champ/archive/refs/heads/main.zip"</pre>
+  <pre class="cmd"><span class="c"># Windows (PowerShell)</span>
+<b>python -m venv</b> $HOME\memory-champ-venv
+<b>&amp; $HOME\memory-champ-venv\Scripts\pip.exe install</b> "memory-champ[recommended] @ https://github.com/mikeleewoodai/memory-champ/archive/refs/heads/main.zip"</pre>
+  <p><code>[recommended]</code> is literal, not a placeholder — it names an optional dependency
+    group. Use the form for your shell: PowerShell does not expand <code>~</code>, so the
+    macOS line run on Windows makes a folder named <code>~</code>.</p>
 
-  <p style="margin-top:16px"><code>init</code> prints an MCP config block ready to paste. To skip the
-    pasting, <code>memory-agent install-claude-desktop</code> merges it for you — backing the file up
-    first, leaving your other servers alone, and refusing outright on JSON it cannot parse.</p>
+  <h3 style="margin:24px 0 10px">2 · Run <code>init</code></h3>
+  <pre class="cmd"><b>~/memory-champ-venv/bin/memory-agent init --no-passphrase</b>
+<b>&amp; $HOME\memory-champ-venv\Scripts\memory-agent.exe init --no-passphrase</b>   <span class="c"># Windows</span></pre>
+  <p>Creates the reviewer key and <code>policy.yaml</code> under <code>~/.memory-agent/</code>, and
+    prints the MCP block with the interpreter path already resolved. <code>--no-passphrase</code>
+    keeps it non-interactive but leaves the key unencrypted; drop it if an agent with shell access
+    runs on this machine.</p>
 
-  <p><code>[recommended]</code> is literal, not a placeholder — it names an optional
-    dependency group. On Windows the paths are <code>Scripts\pip.exe</code> and
-    <code>Scripts\memory-agent.exe</code>. pipx and uv work too, and
-    <code>[all]</code> instead of <code>[recommended]</code> adds semantic embeddings when lexical
-    overlap stops being enough. Python 3.10+, MIT licensed. The
-    <a href="https://github.com/mikeleewoodai/memory-champ#readme">README</a> has the full setup,
+  <h3 style="margin:24px 0 10px">3 · Connect your host</h3>
+  <pre class="cmd"><span class="c"># Claude Desktop - then restart it</span>
+<b>~/memory-champ-venv/bin/memory-agent install-claude-desktop</b>
+
+<span class="c"># Claude Code - the server, then the /memory-agent skill, then restart it</span>
+<b>claude mcp add --scope user memory-champ --</b> ~/memory-champ-venv/bin/python -m memory_agent.server
+<b>~/memory-champ-venv/bin/memory-agent install-claude-code</b></pre>
+  <p><code>install-claude-desktop</code> backs the config up first, leaves your other servers alone,
+    and refuses outright on JSON it cannot parse. On Windows use the <code>Scripts\</code> paths,
+    and in PowerShell quote the dash pair as <code>'--'</code>: PowerShell swallows a bare one, and
+    <code>claude</code> then fails with <code>unknown option '-m'</code>. <b>Cowork</b> uses the
+    Claude Desktop server plus a plugin built from the repo — the
+    <a href="https://github.com/mikeleewoodai/memory-champ#install">README</a> has that step.</p>
+
+  <h3 style="margin:24px 0 10px">4 · Check it works</h3>
+  <pre class="cmd"><b>~/memory-champ-venv/bin/memory-agent stats</b>   <span class="c"># a fresh store says records: 0</span></pre>
+  <p>Then ask your host, in a new session, to call <code>memory_stats</code>. A server can show as
+    connected while its tool calls fail; the call is the real check.</p>
+
+  <p><code>[all]</code> instead of <code>[recommended]</code> adds semantic embeddings when lexical
+    overlap stops being enough. pipx and uv work too. Python 3.10+, MIT licensed. The
+    <a href="https://github.com/mikeleewoodai/memory-champ#install">README</a> has every option,
     and the <a href="v1/">published JSON Schemas</a> are the tool contract if you are integrating
     against it.</p>
 
