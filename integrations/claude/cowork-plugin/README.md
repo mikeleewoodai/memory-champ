@@ -9,13 +9,19 @@ This plugin ships one skill. It does **not** ship a server.
 ## Prerequisite: the MCP server must already be registered
 
 The skill talks to the `memory-champ` MCP server through Claude Desktop's own
-config. Install it once, from the machine where the package is installed:
+config. Set that up once, on the machine running Claude Desktop. The package is
+not on PyPI, so it installs from GitHub. On macOS or Linux:
 
 ```
-pip install "memory-champ[recommended]"
-memory-agent init
-memory-agent install-claude-desktop
+python3 -m venv ~/memory-champ-venv
+~/memory-champ-venv/bin/pip install "memory-champ[recommended] @ https://github.com/mikeleewoodai/memory-champ/archive/refs/heads/main.zip"
+~/memory-champ-venv/bin/memory-agent init
+~/memory-champ-venv/bin/memory-agent install-claude-desktop
 ```
+
+`[recommended]` is literal, not a placeholder. The Windows (PowerShell) form of
+each line is in the
+[main README's install steps](https://github.com/mikeleewoodai/memory-champ#install).
 
 Then restart Claude Desktop. Without that, the skill loads and every tool call
 fails.

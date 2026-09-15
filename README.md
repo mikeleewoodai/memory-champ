@@ -6,7 +6,7 @@ A memory service for agent orchestrations, structured on **CoALA** — the cogni
 
 It stores three kinds of memory rather than one — **what happened** (episodic), **what is true** (semantic), **how to do something** (procedural) — exposes them over MCP so any orchestration can attach, and also runs on its own schedule to consolidate and prune its own store with no host present.
 
-It has no grounding actions. It never reaches the network, never touches the filesystem outside its database, never talks to a user. That is what makes it safe to attach to an arbitrary agentic loop.
+It has no grounding actions. It never reaches the network, never touches the filesystem outside its database, never talks to a user. That is what makes it safe to attach to an arbitrary agentic loop. The one network exception is opt-in: with the `embeddings` extra installed, the first run downloads the model from Hugging Face, once.
 
 ## Start here — the brief
 
@@ -18,46 +18,167 @@ The tool contract is published too: every `$id` in `contracts/` resolves under *
 
 ## Install
 
-Nothing to install first — this uses the `venv` and `pip` that ship with
-Python:
+You need **Python 3.10 or newer** and nothing else: no git, no pipx. Four
+steps: install into a virtual environment, run `init`, connect your host, check
+it works.
+
+It is **not on PyPI** — `pip install memory-champ` on its own finds nothing.
+Install from GitHub as below.
+
+### 1. Install into a virtual environment
+
+**macOS / Linux**
 
 ```bash
-python -m venv ~/memory-champ-venv
+python3 -m venv ~/memory-champ-venv
 ```
 
 ```bash
-~/memory-champ-venv/bin/pip install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+~/memory-champ-venv/bin/pip install "memory-champ[recommended] @ https://github.com/mikeleewoodai/memory-champ/archive/refs/heads/main.zip"
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+python -m venv $HOME\memory-champ-venv
+```
+
+```powershell
+& $HOME\memory-champ-venv\Scripts\pip.exe install "memory-champ[recommended] @ https://github.com/mikeleewoodai/memory-champ/archive/refs/heads/main.zip"
+```
+
+Use the form for your shell. bash and zsh expand `~`; PowerShell and cmd pass it
+through literally, so the macOS line run on Windows creates a folder named `~`
+in the current directory. In cmd, write `%USERPROFILE%` where the PowerShell
+lines say `$HOME`, and drop the leading `&`. If Windows cannot find `python`,
+try `py`.
+
+Calling `pip` and `memory-agent` by full path is deliberate: nothing has to be
+on your PATH, and there is no venv to activate.
+
+**Type `[recommended]` exactly as written.** It is not a placeholder — it is the
+name of an optional dependency group. See [Which extras](#which-extras). The URL
+is GitHub's zip of `main`, which is why pip needs no git; if you have git,
+`git+https://github.com/mikeleewoodai/memory-champ` works as well.
+
+### 2. Run `init`
 
 ```bash
 ~/memory-champ-venv/bin/memory-agent init --no-passphrase
 ```
 
-On Windows the paths are `C:\memory-champ-venv\Scripts\pip.exe` and
-`C:\memory-champ-venv\Scripts\memory-agent.exe`. Calling the scripts by full
-path is deliberate: it needs nothing on your PATH, and works the same in
-PowerShell, cmd, and bash.
+```powershell
+& $HOME\memory-champ-venv\Scripts\memory-agent.exe init --no-passphrase
+```
 
-**Type `[recommended]` exactly as written.** It is not a placeholder — it is the
-name of an optional dependency group. See [Which extras](#which-extras).
+It creates `~/.memory-agent/` with a reviewer key and `policy.yaml` (the
+database follows on first write), then prints the MCP config block for your
+host. [What `init` does](#what-init-does) has the detail.
 
-`--no-passphrase` keeps it non-interactive. Drop it to be prompted, or see
-[Passphrases without a terminal](#passphrases-without-a-terminal) to supply one
-from a file or the environment.
+`--no-passphrase` keeps it non-interactive, and writes the reviewer key
+**unencrypted**. Drop it to be prompted for a passphrase — do that if an agent
+with shell access runs on this machine, because an unencrypted key lets that
+agent sign its own approvals. To supply one from a file or the environment, see
+[Passphrases without a terminal](#passphrases-without-a-terminal).
+
+### 3. Connect your host
+
+Do the one for the host you use. The commands show macOS/Linux paths; on
+Windows, use `& $HOME\memory-champ-venv\Scripts\memory-agent.exe` and
+`$HOME\memory-champ-venv\Scripts\python.exe`.
+
+**Claude Desktop** — one command, then restart Claude Desktop:
+
+```bash
+~/memory-champ-venv/bin/memory-agent install-claude-desktop
+```
+
+It merges into `claude_desktop_config.json`, backs the file up first, leaves
+every other server alone, and refuses outright if the file does not parse —
+that file holds all your other MCP servers, and rewriting one we could not read
+would destroy them. `--dry-run` shows the result without writing.
+
+**Claude Code** — register the server, install the skill, then restart Claude
+Code:
+
+```bash
+claude mcp add --scope user memory-champ -- ~/memory-champ-venv/bin/python -m memory_agent.server
+```
+
+```powershell
+claude mcp add --scope user memory-champ '--' $HOME\memory-champ-venv\Scripts\python.exe -m memory_agent.server
+```
+
+```bash
+~/memory-champ-venv/bin/memory-agent install-claude-code
+```
+
+**In PowerShell, quote the `'--'`.** The npm-installed `claude` is a PowerShell
+script, and PowerShell consumes a bare `--` itself, so `claude` never sees it
+and fails with `unknown option '-m'`.
+
+`--scope user` makes the server available in every project. The interpreter
+after `--` must be the one that has the package — the `command` value `init`
+printed. If you installed with pipx or uv, use that value instead.
+
+`install-claude-code` copies the `memory-agent` skill into `~/.claude/skills/`,
+which registers `/memory-agent`: recall what a project already knows, write down
+what was learned, queue procedures for approval, and read store health. It
+refuses to overwrite a destination that differs (`--force` replaces it, after a
+backup), and `--check` reports drift without writing: exit 0 matches, 1
+drifted, 2 absent.
+
+Scope is the one thing the skill cannot derive, so it reads a map from
+`~/.memory-agent/claude.yaml`. Copy
+[`integrations/claude/claude.example.yaml`](integrations/claude/claude.example.yaml)
+there and fill it in. Without it the skill asks instead of guessing, which is
+the intended fallback rather than a broken state.
+
+**Cowork** — do the Claude Desktop step first, because Cowork uses that server.
+Then build the plugin from a copy of this repo (clone it, or download and
+extract the [zip](https://github.com/mikeleewoodai/memory-champ/archive/refs/heads/main.zip)):
+
+```bash
+git clone https://github.com/mikeleewoodai/memory-champ
+```
+
+```bash
+python3 memory-champ/build_plugin.py dist/
+```
+
+That writes `dist/memory-champ-<version>.plugin` — install that file as a plugin
+in Cowork. `build_plugin.py` uses only the standard library, so any Python 3.10+
+runs it (`python` on Windows). The plugin carries the skill only, so Cowork does
+not start a second server. Cowork cannot sign approvals: proposals queue there
+and get signed from Claude Code or a terminal. See
+[`integrations/claude/cowork-plugin/README.md`](integrations/claude/cowork-plugin/README.md).
+
+### 4. Check it works
+
+```bash
+~/memory-champ-venv/bin/memory-agent stats
+```
+
+A fresh store prints `records: 0` and `queue: 0 pending`. Then open a new session
+in your host and ask it to call `memory_stats`. A host can list a server as
+connected while its tool calls still fail, so the tool call is the real check.
+
+### Other ways to install
 
 <details>
 <summary>pipx (nicer, but one more thing to install)</summary>
 
-pipx keeps the CLI in its own environment and puts it on your PATH. It is the
-better long-term arrangement for a command-line tool; it just is not present by
-default, so the plain-venv route above is what this README leads with.
+pipx keeps the CLI in its own environment and puts it on your PATH, so the bare
+`memory-agent` replaces the full paths in the steps above. It is the better
+long-term arrangement for a command-line tool; it just is not present by
+default, so the plain-venv route is what this README leads with.
 
 ```bash
 python -m pip install --user pipx
 ```
 
 ```bash
-python -m pipx install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+python -m pipx install "memory-champ[recommended] @ https://github.com/mikeleewoodai/memory-champ/archive/refs/heads/main.zip"
 ```
 
 Invoking it as `python -m pipx` rather than `pipx` avoids the first thing that
@@ -70,7 +191,7 @@ off your PATH. `python -m pipx ensurepath` fixes that for later shells.
 <summary>uv</summary>
 
 ```bash
-uv tool install "memory-champ[recommended] @ git+https://github.com/mikeleewoodai/memory-champ"
+uv tool install "memory-champ[recommended] @ https://github.com/mikeleewoodai/memory-champ/archive/refs/heads/main.zip"
 ```
 
 **On Windows, `uv tool install` puts scripts in `%USERPROFILE%\.local\bin`,
@@ -98,8 +219,11 @@ those when lexical overlap stops being good enough, a call worth making against
 your own corpus rather than up front:
 
 ```bash
-pipx install "memory-champ[all] @ git+https://github.com/mikeleewoodai/memory-champ"
+~/memory-champ-venv/bin/pip install "memory-champ[all] @ https://github.com/mikeleewoodai/memory-champ/archive/refs/heads/main.zip"
 ```
+
+The first run after that downloads the embedding model from Hugging Face, once;
+later loads come from the local cache with the Hub switched to offline.
 
 Only `cryptography`, `PyYAML`, and `bcrypt` are truly required. The rest
 degrades visibly rather than failing: no `sqlite-vec` means keyword-only recall
@@ -111,51 +235,6 @@ is what brings in `pytest` and `jsonschema`, and `[all]` deliberately does not
 include it, so a bare `.[all]` leaves the `pytest -q` below with nothing to run.
 
 Python 3.10+, tested on 3.10 through 3.14.
-
-### Wiring it into Claude Desktop
-
-`init` prints a config block to paste. To skip the pasting:
-
-```bash
-memory-agent install-claude-desktop            # --dry-run to see it first
-```
-
-It merges into `claude_desktop_config.json`, backs the file up first, leaves
-every other server alone, and refuses outright if the file does not parse —
-that file holds all your other MCP servers, and rewriting one we could not read
-would destroy them.
-
-### Wiring it into Claude Code
-
-```bash
-memory-agent install-claude-code               # --dry-run to see it first
-```
-
-Copies the `memory-agent` skill into `~/.claude/skills/`, which registers
-`/memory-agent`: recall what a project already knows, write down what was
-learned, queue procedures for approval, and read store health. The MCP server
-itself is registered separately — `claude mcp add`, or the block `init` prints.
-
-It refuses to overwrite a destination that differs (`--force` replaces it, after
-a backup), and `--check` reports drift without writing: exit 0 matches, 1
-drifted, 2 absent.
-
-Scope is the one thing the skill cannot derive, so it reads a map from
-`~/.memory-agent/claude.yaml`. Copy
-[`integrations/claude/claude.example.yaml`](integrations/claude/claude.example.yaml)
-and fill it in. Without it the skill asks instead of guessing, which is the
-intended fallback rather than a broken state.
-
-### Wiring it into Cowork
-
-```bash
-python build_plugin.py dist/
-```
-
-Writes an installable `.plugin` bundle. It carries the skill only — the MCP
-server comes from `install-claude-desktop` above, so Cowork does not start a
-second one. See
-[`integrations/claude/cowork-plugin/README.md`](integrations/claude/cowork-plugin/README.md).
 
 ### Passphrases without a terminal
 
@@ -250,6 +329,8 @@ Approving is also callable over MCP — the signature, not the caller, is what t
 | `src/memory_agent/` | The implementation — see the module map below |
 | [`tests/`](tests/) | One test per acceptance criterion, plus contract-conformance and non-functional suites |
 | [`verify.py`](verify.py) | Contract verification: schemas, DDL invariants, the published signature |
+| [`eval_recall.py`](eval_recall.py) | Recall quality, as opposed to correctness (A-4) |
+| [`HANDOVER.md`](HANDOVER.md) | Read-cold orientation, and the things most likely to trip you up |
 | [`integrations/`](integrations/README.md) | Claude Code skill and Cowork plugin, with the I-series gates that keep machine paths out of them |
 | [`build_plugin.py`](build_plugin.py) | Packages the Cowork plugin. Refuses to build a bundle carrying an absolute path |
 | [`BACKLOG.md`](BACKLOG.md) | Open work. B-1 blocks a work version |
