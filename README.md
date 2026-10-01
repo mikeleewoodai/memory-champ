@@ -125,8 +125,9 @@ printed. If you installed with pipx or uv, use that value instead.
 which registers `/memory-agent`: recall what a project already knows, write down
 what was learned, queue procedures for approval, and read store health. It
 refuses to overwrite a destination that differs (`--force` replaces it, after a
-backup), and `--check` reports drift without writing: exit 0 matches, 1
-drifted, 2 absent.
+backup into `~/.claude/skills-backup/` — never inside the skills folder, where a
+host would load it as a second skill), and `--check` reports drift without
+writing: exit 0 matches, 1 drifted, 2 absent.
 
 Scope is the one thing the skill cannot derive, so it reads a map from
 `~/.memory-agent/hosts.yaml`. Copy

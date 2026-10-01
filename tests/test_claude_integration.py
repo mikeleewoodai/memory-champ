@@ -34,6 +34,10 @@ def _install(dest, *extra):
     return cli.main(["install-claude-code", "--path", str(dest), *extra])
 
 
+def _backups(skills):
+    return list(cli.skill_backup_dir(skills).glob("memory-agent.bak-*"))
+
+
 def test_install_copies_the_whole_skill(tmp_path):
     assert _install(tmp_path) == 0
 
@@ -56,7 +60,7 @@ def test_a_second_run_changes_nothing(tmp_path, capsys):
     assert _install(tmp_path) == 0
     assert "nothing to do" in capsys.readouterr().out
     assert {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == before
-    assert not list(tmp_path.glob("*.bak-*")), "an idempotent run must not back up"
+    assert not _backups(tmp_path), "an idempotent run must not back up"
 
 
 def test_refuses_to_clobber_a_hand_edited_skill(tmp_path):
@@ -69,7 +73,7 @@ def test_refuses_to_clobber_a_hand_edited_skill(tmp_path):
 
     assert _install(tmp_path) == 1
     assert edited.read_text(encoding="utf-8") == "# mine\n"
-    assert not list(tmp_path.glob("*.bak-*")), "no backup either - nothing was written"
+    assert not _backups(tmp_path), "no backup either - nothing was written"
 
 
 def test_force_replaces_but_backs_up_first(tmp_path):
@@ -80,9 +84,13 @@ def test_force_replaces_but_backs_up_first(tmp_path):
     assert _install(tmp_path, "--force") == 0
     assert edited.read_bytes() == (skill_path() / "SKILL.md").read_bytes()
 
-    backups = list(tmp_path.glob("memory-agent.bak-*"))
+    backups = _backups(tmp_path)
     assert len(backups) == 1
     assert (backups[0] / "SKILL.md").read_text(encoding="utf-8") == "# mine\n"
+    # The skills directory must hold only the skill. Every host loads each
+    # folder there as a skill, so a backup inside it registers as a second
+    # copy carrying the old text.
+    assert [p.name for p in tmp_path.iterdir()] == ["memory-agent"]
 
 
 def test_check_reports_drift_without_writing(tmp_path):

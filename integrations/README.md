@@ -99,8 +99,9 @@ byte-for-byte and the `references/` files land with it. A second run prints
 **I8 — it refuses to clobber, and backs up when forced.** *accept:* with a
 differing `SKILL.md` planted at the destination, the command exits 1, leaves the
 file byte-identical, and creates no backup. With `--force`: exits 0, the file
-matches the source, and a `memory-agent.bak-*` directory holds the previous
-content.
+matches the source, a `memory-agent.bak-*` directory under `<tmp>-backup/` holds
+the previous content, and `<tmp>` holds nothing but `memory-agent/` — a backup
+inside the skills directory is loaded by the host as a second skill.
 
 **I9 — the skill travels in a non-editable install.** *accept:* after
 `pip install ".[recommended]"` from outside the checkout,

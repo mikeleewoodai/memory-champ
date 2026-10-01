@@ -467,6 +467,12 @@ def claude_code_skills_path() -> Path:
 _MANAGED_MARKERS = ("local-agent-mode-sessions", "skills-plugin")
 
 
+def skill_backup_dir(base: Path) -> Path:
+    """Where --force keeps a replaced skill: `<skills>-backup/`, beside the
+    skills directory rather than inside it."""
+    return base.with_name(base.name + "-backup")
+
+
 def _skill_diff(source: Path, dest: Path, names: list[Path]) -> list[Path]:
     """Which of `names` differ between source and dest, plus any stray .md."""
     differing = [n for n in names
@@ -562,7 +568,13 @@ def _install_skill(args, base: Path, next_step: str) -> int:
         return 1
 
     if dest.exists():
-        backup = dest.with_name(f"{args.name}.bak-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
+        # Never beside the skill. A host loads every folder in its skills
+        # directory as a skill, so a backup there registers as a second copy
+        # still carrying the old text - Claude Code listed one on 2026-10-01.
+        # A sibling directory is outside what any host scans.
+        backups = skill_backup_dir(base)
+        backups.mkdir(parents=True, exist_ok=True)
+        backup = backups / f"{args.name}.bak-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
         shutil.copytree(dest, backup)
         print(f"backup:  {backup}")
         shutil.rmtree(dest)
