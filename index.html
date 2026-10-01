@@ -875,13 +875,21 @@
 
 <span class="c"># Claude Code - the server, then the /memory-agent skill, then restart it</span>
 <b>claude mcp add --scope user memory-champ --</b> ~/memory-champ-venv/bin/python -m memory_agent.server
-<b>~/memory-champ-venv/bin/memory-agent install-claude-code</b></pre>
+<b>~/memory-champ-venv/bin/memory-agent install-claude-code</b>
+
+<span class="c"># Codex (CLI and desktop app) - the skill, then run the registration it prints</span>
+<b>~/memory-champ-venv/bin/memory-agent install-codex</b>
+
+<span class="c"># Antigravity - the server and the /memory-agent skill, then restart it</span>
+<b>~/memory-champ-venv/bin/memory-agent install-antigravity</b></pre>
   <p><code>install-claude-desktop</code> backs the config up first, leaves your other servers alone,
     and refuses outright on JSON it cannot parse. On Windows use the <code>Scripts\</code> paths,
     and in PowerShell quote the dash pair as <code>'--'</code>: PowerShell swallows a bare one, and
     <code>claude</code> then fails with <code>unknown option '-m'</code>. <b>Cowork</b> uses the
     Claude Desktop server plus a plugin built from the repo — the
-    <a href="https://github.com/mikeleewoodai/memory-champ#install">README</a> has that step.</p>
+    <a href="https://github.com/mikeleewoodai/memory-champ#install">README</a> has that step.
+    ChatGPT web and mobile reach only remote servers, and this one stays local until caller
+    authentication exists.</p>
 
   <h3 style="margin:24px 0 10px">4 · Check it works</h3>
   <pre class="cmd"><b>~/memory-champ-venv/bin/memory-agent stats</b>   <span class="c"># a fresh store says records: 0</span></pre>
