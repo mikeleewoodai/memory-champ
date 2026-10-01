@@ -29,6 +29,21 @@ def default_policy_path() -> Path:
     return default_home() / "policy.yaml"
 
 
+def resolve_policy_path(path: str | os.PathLike | None = None) -> Path | None:
+    """The policy file `Policy.load(path)` would read, or None when it would
+    fall back to built-in defaults.
+
+    One resolution chain, used by the loader and by the host installers that
+    bake the path into a host config. A host that starts the server with a
+    filtered environment (Codex passes only a fixed allowlist) never sees
+    MEMORY_AGENT_HOME, so the installer pins the file it found here rather than
+    trusting the server to land on the same one.
+    """
+    candidate = path or os.environ.get("MEMORY_AGENT_POLICY") or default_policy_path()
+    found = Path(candidate)
+    return found.resolve() if found.exists() else None
+
+
 @dataclass
 class RetrievalWeights:
     relevance: float = 0.5
@@ -116,11 +131,11 @@ class Policy:
         defaults rather than erroring - the defaults mirror
         contracts/policy.example.yaml, so no config is a valid configuration.
         """
-        path = path or os.environ.get("MEMORY_AGENT_POLICY") or default_policy_path()
-        if not path or not Path(path).exists():
+        found = resolve_policy_path(path)
+        if found is None:
             return cls()
-        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-        return cls.from_dict(raw, base_dir=Path(path).parent)
+        raw = yaml.safe_load(found.read_text(encoding="utf-8")) or {}
+        return cls.from_dict(raw, base_dir=found.parent)
 
     @classmethod
     def from_dict(cls, raw: dict, base_dir: Path | None = None) -> "Policy":

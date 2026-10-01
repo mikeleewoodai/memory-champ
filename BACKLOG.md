@@ -96,10 +96,19 @@ Two properties of this specific design raise the stakes:
 
 ## B-3 — The two skills are kept in step by a checker, not a generator
 
-**Status:** open, deliberate · **Raised:** 2026-09-02 · **Trigger:** a third host, or a shared reference that diverges without I4 noticing
+**Status:** open, deliberate, narrowed 2026-10-01 · **Raised:** 2026-09-02 · **Trigger:** a host that fits neither skill, or a shared reference that diverges without I4 noticing
 
-`integrations/` ships two SKILL.md files, one per host, because they differ in
-capability: Cowork cannot read `~/.memory-agent/claude.yaml` and cannot run the
+**The third-host trigger fired on 2026-10-01 and did not need a generator.**
+Codex and Antigravity arrived, and both have Claude Code's capabilities: they
+read local files, run the CLI, and load the same `SKILL.md` format. So the Code
+skill became the host-neutral *agent skill* (`integrations/agent-skill/`) and
+each host got an `install-<host>` command that copies it. There are still two
+bodies, split by capability rather than by host. The trigger is now a host that
+fits neither — one that can run a shell but not read the scope map, say — since
+that is what would force a third body.
+
+`integrations/` ships two SKILL.md files because they differ in capability:
+Cowork cannot read the `~/.memory-agent/hosts.yaml` scope map and cannot run the
 CLI, so it cannot sign approvals. The parts that must never diverge — tool
 semantics and memory hygiene — are physically duplicated under each
 `references/`, and `verify.py` asserts the copies are byte-identical (I4).
@@ -155,6 +164,12 @@ policy file was found at any resolution point. Called from `cli._service()`,
 `--allow-new-store` as the explicit override, because there is a legitimate
 first-run case and a guard with no escape hatch gets deleted.
 
+**Partly mitigated for two hosts (2026-10-01).** `install-codex` and
+`install-antigravity` refuse to run without a policy file they can resolve, and
+pin its absolute path into the host's server config, so a host that filters the
+environment — Codex passes only a fixed allowlist — cannot land on the default.
+The CLI and the other hosts still can.
+
 ### Definition of done
 
 - **I10-bis** *accept:* with `MEMORY_AGENT_HOME` pointed at an empty temp dir and
@@ -163,4 +178,48 @@ first-run case and a guard with no escape hatch gets deleted.
   and does not create `memory.db` in the working directory; with
   `--allow-new-store` it exits 0 and the file is created
 - `verify.py` and `pytest -q` stay green with no test changes beyond the new one
+
+---
+
+## B-5 — ChatGPT web and mobile cannot reach the server
+
+**Status:** open, deferred · **Raised:** 2026-10-01 · **Blocked by:** B-1 · **Trigger:** wanting memory in ChatGPT's chat surfaces rather than in Codex
+
+Every supported host starts the server itself over stdio: Claude Desktop,
+Claude Code, Cowork, Codex (CLI, IDE extension, desktop app) and Antigravity.
+ChatGPT on the web and on phones does not. It connects only to remote MCP
+servers over HTTPS — streamable HTTP or SSE — authenticated with OAuth or with
+none, and it never reads a local config file.
+
+**Why it is not just a transport flag.** `contracts/mcp-tools.json` already
+lists `streamable-http`, and the SDK would serve it in a few lines. But a
+network listener is one of B-1's own triggers: the moment the server is
+reachable by anything other than the process that spawned it, "anything that
+could reach the server could already open `memory.db`" stops being true, and
+scope is a logical namespace, not a security boundary. A ChatGPT connector
+with no auth would expose every scope to anyone holding the URL — and memory
+is trusted by construction, so a write from that URL is a prompt injection
+that persists.
+
+### Route, when it is picked up
+
+1. B-1 first: a principal per caller and per-scope grants, failing closed.
+2. A streamable-http listener bound to loopback, with OAuth as ChatGPT expects
+   it (dynamic client registration or a client metadata document) — not a
+   static bearer token, which ChatGPT's developer mode does not document.
+3. Reach it from ChatGPT through OpenAI's Secure MCP Tunnel, which dials out
+   from this machine, rather than by opening a port. Confirm the tunnel client
+   runs on Windows and which plans may use it before building on it.
+4. Grant the ChatGPT principal the narrowest scopes that make it useful, and
+   decide whether it may write at all. Read-only recall is most of the value
+   and none of the poisoning risk.
+
+### Definition of done
+
+- A ChatGPT developer-mode connector lists the nine tools and a recall returns
+  records from a granted scope
+- The same connector receives nothing from an ungranted scope, on every tool —
+  B-1's isolation test run against the ChatGPT principal
+- Nothing listens on a non-loopback interface
+- Signed approvals still verify unchanged
 

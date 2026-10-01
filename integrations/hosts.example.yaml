@@ -1,6 +1,9 @@
-# memory-champ — local config for the Claude integration.
+# memory-champ — local config for every host that runs the memory-agent skill
+# (Claude Code, Codex, Antigravity). One file, so a project resolves to the same
+# scope whichever agent is working in it.
 #
-# Copy to ~/.memory-agent/claude.yaml and fill in. That directory sits outside
+# Copy to ~/.memory-agent/hosts.yaml and fill in. An older ~/.memory-agent/
+# claude.yaml is still read when hosts.yaml is absent. That directory sits outside
 # every checkout on purpose — the same reason policy.yaml and memory.db live
 # there: the store outlives the checkout, and moving between projects must not
 # move the memory. This file follows them, so it is never in a repo.

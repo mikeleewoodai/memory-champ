@@ -145,8 +145,8 @@ def test_refuses_to_write_through_a_link(tmp_path):
 def test_skill_files_are_declared_as_package_data():
     """Guards the same defect as the contracts/ test, one layer out.
 
-    install-claude-code copies Markdown that lives outside src/. Drop these
-    declarations and the wheel stops carrying it, the command finds nothing to
+    Every skill installer copies Markdown that lives outside src/. Drop these
+    declarations and the wheel stops carrying it, the commands find nothing to
     copy, and no test in this file can tell - they all run from the checkout,
     where the repo path resolves anyway.
     """
@@ -154,15 +154,15 @@ def test_skill_files_are_declared_as_package_data():
     cfg = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     st = cfg["tool"]["setuptools"]
-    assert "memory_agent.claude_skill" in st["packages"]
-    assert "memory_agent.claude_skill.references" in st["packages"], \
+    assert "memory_agent.agent_skill" in st["packages"]
+    assert "memory_agent.agent_skill.references" in st["packages"], \
         "references/ needs its own package entry - package-data globs do not recurse"
-    assert st["package-dir"]["memory_agent.claude_skill"] == \
-        "integrations/claude/code-skill/memory-agent"
+    assert st["package-dir"]["memory_agent.agent_skill"] == \
+        "integrations/agent-skill/memory-agent"
 
     data = st["package-data"]
-    assert data["memory_agent.claude_skill"] == ["*.md"]
-    assert data["memory_agent.claude_skill.references"] == ["*.md"]
+    assert data["memory_agent.agent_skill"] == ["*.md"]
+    assert data["memory_agent.agent_skill.references"] == ["*.md"]
 
 
 def test_skill_path_names_both_places_it_looked(tmp_path, monkeypatch):

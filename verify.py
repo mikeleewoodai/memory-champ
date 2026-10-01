@@ -468,6 +468,13 @@ def verify_integrations(tools):
         check(f"I1 {rel}: name is kebab-case and matches its directory",
               bool(KEBAB.fullmatch(name)) and name == s.parent.name,
               f"{name!r} vs dir {s.parent.name!r}")
+        # The Agent Skills limits. Claude tolerates more; Codex and Antigravity
+        # load the same file and enforce these, and a skill they refuse is one
+        # that silently never triggers there.
+        check(f"I1 {rel}: name within 64 characters", len(name) <= 64, str(len(name)))
+        desc = " ".join(str(meta["description"]).split())
+        check(f"I1 {rel}: description within 1024 characters", len(desc) <= 1024,
+              str(len(desc)))
         tool_sets.append(set(re.findall(r"\bmemory_[a-z_]+\b",
                                         s.read_text(encoding="utf-8"))))
 
@@ -489,7 +496,7 @@ def verify_integrations(tools):
         check("I2 plugin homepage matches pyproject", meta.get("homepage") == urls.get("Homepage"))
         check("I2 plugin repository matches pyproject", meta.get("repository") == urls.get("Source"))
 
-    code_refs = root / "claude" / "code-skill" / "memory-agent" / "references"
+    code_refs = root / "agent-skill" / "memory-agent" / "references"
     plug_refs = root / "claude" / "cowork-plugin" / "skills" / "memory-agent" / "references"
     shared = sorted({f.name for f in code_refs.glob("*.md")}
                     & {f.name for f in plug_refs.glob("*.md")})
@@ -498,7 +505,7 @@ def verify_integrations(tools):
         check(f"I4 {name} is byte-identical in both trees",
               (code_refs / name).read_bytes() == (plug_refs / name).read_bytes())
 
-    cfg = yaml.safe_load((root / "claude" / "claude.example.yaml").read_text(encoding="utf-8"))
+    cfg = yaml.safe_load((root / "hosts.example.yaml").read_text(encoding="utf-8"))
     check("I5 example config parses at version 1", cfg.get("version") == 1)
     check("I5 example ships no scopes", cfg.get("scopes") == {}, repr(cfg.get("scopes")))
     check("I5 example sets no default_scope", cfg.get("default_scope") is None)

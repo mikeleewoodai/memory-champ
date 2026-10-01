@@ -50,17 +50,27 @@ jobs:
         run: |
           memory-agent init --home "$RUNNER_TEMP/ma" --no-passphrase
           memory-champ --help > /dev/null
-      - name: the Claude skill must travel in the wheel
+      - name: the agent skill must travel in the wheel
         # integrations/README.md I9. This is the ONLY place the defect is
         # visible: every in-repo test runs from the checkout, where the repo
         # path resolves whether or not package-data was declared.
         shell: bash
         working-directory: ${{ runner.temp }}
+        env:
+          # install-codex and install-antigravity pin a policy file, so they
+          # need the one init wrote above.
+          MEMORY_AGENT_HOME: ${{ runner.temp }}/ma
         run: |
           memory-agent install-claude-code --path "$RUNNER_TEMP/skills"
           test -f "$RUNNER_TEMP/skills/memory-agent/SKILL.md"
           test -n "$(ls "$RUNNER_TEMP/skills/memory-agent/references/"*.md)"
           memory-agent install-claude-code --path "$RUNNER_TEMP/skills" --check
+          memory-agent install-codex --path "$RUNNER_TEMP/codex-skills"
+          test -f "$RUNNER_TEMP/codex-skills/memory-agent/SKILL.md"
+          memory-agent install-codex --path "$RUNNER_TEMP/codex-skills" --check
+          memory-agent install-antigravity --path "$RUNNER_TEMP/ag/mcp_config.json" --skills-path "$RUNNER_TEMP/ag-skills"
+          test -f "$RUNNER_TEMP/ag-skills/memory-agent/SKILL.md"
+          memory-agent install-antigravity --path "$RUNNER_TEMP/ag/mcp_config.json" --skills-path "$RUNNER_TEMP/ag-skills" --check
       - name: the Cowork plugin must build into an installable bundle
         # I10. build_plugin.py is the artefact that leaves the machine, and it
         # runs its own publish-safety checks before writing the zip.

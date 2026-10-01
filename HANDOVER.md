@@ -113,11 +113,11 @@ memory-agent stats --scope acme.crm
    packaging block, `test_runtime_contracts_are_declared_as_package_data` is
    what stops the wheel silently shedding those files again.
 
-9. **The Claude skill has to travel in the wheel too, and only CI can see
-   whether it does.** `install-claude-code` copies
-   `integrations/claude/code-skill/memory-agent/` into the user's skills
-   directory. That directory lives outside `src/`, so it ships only because
-   `pyproject.toml` maps it in as `memory_agent.claude_skill` — with
+9. **The agent skill has to travel in the wheel too, and only CI can see
+   whether it does.** `install-claude-code`, `install-codex` and
+   `install-antigravity` all copy `integrations/agent-skill/memory-agent/` into
+   a host's skills directory. That directory lives outside `src/`, so it ships
+   only because `pyproject.toml` maps it in as `memory_agent.agent_skill` — with
    `.references` declared as its own package, because `package-data` globs do
    not recurse into a subdirectory of a non-package. Item 8 again, and worse in
    one way: a missing `contracts/` kills the first database open loudly, while a
@@ -170,6 +170,8 @@ Full reasoning in spec §13. The headlines:
 **B-1 — caller authentication. Blocks a work version.** Reviewer identity is done; *who is calling* is not. Any orchestration reaching the server can read and write any scope it can name, and `memory_remember` writes are unattributed. Fine for one person on one machine over stdio, where anything that could reach the server could already open `memory.db` directly. Not fine the moment there is a second person, a second machine, a network transport, or client data. Full work item with definition of done in `BACKLOG.md`.
 
 One note carried there: **don't fold reviewer identity back into caller identity** once principals exist. A session credential proves who is connected *now*; a signature proves who decided *then*, and survives the session, the server, and the database.
+
+**B-5 — ChatGPT web and mobile** wait on B-1: they reach only remote HTTPS servers, and a network listener is one of B-1's triggers. Every host that starts the server itself — Claude Desktop, Claude Code, Cowork, Codex, Antigravity — is supported today over stdio.
 
 Also open, all with stated consequences in spec §12: A-2 (single-writer), A-4 (local embeddings good enough), A-5 (hosts cooperate with idempotency keys), A-6 (reflection quality unproven — which is why `auto_commit` defaults to false).
 

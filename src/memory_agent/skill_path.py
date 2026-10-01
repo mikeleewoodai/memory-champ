@@ -1,12 +1,14 @@
-"""Locate the Claude Code skill, whether installed or run from a checkout.
+"""Locate the agent skill, whether installed or run from a checkout.
 
-`install-claude-code` copies a directory of Markdown into the user's skills
-folder. That directory lives at `integrations/claude/code-skill/memory-agent/`
-in the repo, and it has to travel in the wheel or the command works from a
-checkout and nowhere else — which is HANDOVER item 8's failure, one layer out.
+`install-claude-code`, `install-codex` and `install-antigravity` all copy one
+directory of Markdown into a host's skills folder — the hosts that can read
+local files and run a shell share a single skill. That directory lives at
+`integrations/agent-skill/memory-agent/` in the repo, and it has to travel in
+the wheel or the commands work from a checkout and nowhere else — which is
+HANDOVER item 8's failure, one layer out.
 
 The two situations differ the same way `contracts/` does. Installed, the files
-ship as the `memory_agent.claude_skill` subpackage and land beside this module.
+ship as the `memory_agent.agent_skill` subpackage and land beside this module.
 Run from a checkout, they sit under the repo root, two levels up. Resolve the
 packaged copy first and fall back to the repo layout, so neither has to know
 which it is.
@@ -26,9 +28,13 @@ from pathlib import Path
 # contracts_path: this is a data directory of Markdown that humans edit, it
 # carries no __init__.py, and adding one purely to satisfy resources.files()
 # would put a Python file in a directory that deliberately contains none.
+# `claude_skill` - the subpackage's name before other hosts shared it - is
+# deliberately not a candidate. An install upgraded in place can leave that
+# directory behind with the old text, and as a candidate it would shadow the
+# current skill without a word.
 _CANDIDATES = (
-    Path(__file__).resolve().parent / "claude_skill",
-    Path(__file__).resolve().parents[2] / "integrations" / "claude" / "code-skill" / "memory-agent",
+    Path(__file__).resolve().parent / "agent_skill",
+    Path(__file__).resolve().parents[2] / "integrations" / "agent-skill" / "memory-agent",
 )
 
 
@@ -36,7 +42,7 @@ def skill_path() -> Path:
     """Return the directory holding SKILL.md and its references/.
 
     Identified by SKILL.md rather than by the directory existing, so a stale
-    empty `claude_skill/` left behind by an older install cannot shadow the
+    empty `agent_skill/` left behind by an older install cannot shadow the
     checkout copy.
     """
     for root in _CANDIDATES:
@@ -45,8 +51,8 @@ def skill_path() -> Path:
 
     looked = "\n  ".join(str(r) for r in _CANDIDATES)
     raise FileNotFoundError(
-        f"the Claude Code skill was not found. Looked at:\n  {looked}\n"
-        f"An install that omits it cannot run install-claude-code: the skill is "
+        f"the memory-agent skill was not found. Looked at:\n  {looked}\n"
+        f"An install that omits it cannot install a skill for any host: it is "
         f"Markdown that ships as package data, not something generated at "
         f"runtime.")
 

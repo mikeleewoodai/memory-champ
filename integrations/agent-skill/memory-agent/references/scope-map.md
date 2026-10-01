@@ -1,22 +1,34 @@
 # Resolving the scope
 
 Scope is required on six of the nine tools, matching is exact, and a wrong
-value fails silently. This is how the Claude Code skill decides which one to
-use, and why it asks rather than guesses.
+value fails silently. This is how the skill decides which one to use, in every
+host that runs it, and why it asks rather than guesses.
 
 ---
 
 ## The config file
 
-`~/.memory-agent/claude.yaml`, sibling of `policy.yaml` and `memory.db`.
-Template: `integrations/claude/claude.example.yaml` in the repo.
+`~/.memory-agent/hosts.yaml`, sibling of `policy.yaml` and `memory.db`.
+Template: `integrations/hosts.example.yaml` in the repo. One file serves every
+host — Claude Code, Codex and Antigravity read the same map, so a project
+resolves to the same scope whichever agent is working in it.
+
+It was called `claude.yaml` before other hosts were supported. That name is
+still read, after the new one, so an existing map keeps working untouched.
 
 Resolution order for the file itself, mirroring `Policy.load()` so the project
-has one idiom rather than two:
+has one idiom rather than two. Stop at the first file that exists:
 
-1. `$MEMORY_AGENT_CLAUDE_CONFIG`
-2. `$MEMORY_AGENT_HOME/claude.yaml`
-3. `~/.memory-agent/claude.yaml`
+1. `$MEMORY_AGENT_HOSTS_CONFIG`
+2. `$MEMORY_AGENT_HOME/hosts.yaml`
+3. `~/.memory-agent/hosts.yaml`
+4. `$MEMORY_AGENT_CLAUDE_CONFIG`
+5. `$MEMORY_AGENT_HOME/claude.yaml`
+6. `~/.memory-agent/claude.yaml`
+
+Read one file, never merge two. If both names exist, `hosts.yaml` wins and the
+other is ignored — say so once, because an entry added to the ignored file will
+look lost.
 
 A missing file is valid. It means every scope decision is a question.
 
@@ -31,7 +43,7 @@ ritual: { recall_on_start: true, open_cycle: true }
 ```
 
 `~/.memory-agent/` is outside every checkout, so the file cannot be committed by
-accident. `claude.yaml` is also in this repo's `.gitignore` as insurance against
+accident. Both names are also in this repo's `.gitignore` as insurance against
 someone copying it into one — but the location is the protection, not the ignore
 rule.
 
@@ -90,7 +102,8 @@ The skill **may append** an entry, and only append:
 - Only with an explicit yes.
 - Only appending. Never edit an existing entry, never remove one, never rewrite
   the file wholesale.
-- It may create `claude.yaml` from a single dictated entry. It may **never**
+- It appends to the file the lookup found. With none found, it may create
+  `hosts.yaml` from a single dictated entry. It may **never**
   populate it by scanning directories or inferring from names.
 - It **never touches `policy.yaml`.** That file holds the reviewer public keys.
   Two config files: one appendable with consent, one never written.

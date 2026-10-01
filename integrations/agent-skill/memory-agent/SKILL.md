@@ -4,24 +4,28 @@ description: >
   Work the memory-champ CoALA memory store over its MCP server — recall what is
   already known about this project before starting, write down what was learned,
   queue procedures into the human-signed approval gate, surface what is pending,
-  and report store health. Use whenever the user runs /memory-agent, and whenever
-  they say anything like "what do you know about X", "check your memory", "what
+  and report store health. Use whenever the user runs /memory-agent or
+  $memory-agent, and whenever they say anything like "what do you know about X", "check your memory", "what
   did we decide about that", "have we hit this before", "remember this", "note
   that for next time", "always do X before Y", "add that to memory", "what's
   pending", "review the proposal queue", "any approvals waiting", "how big is the
   store", or "reflect on this project". Also use at the start of work in a
   project that has a memory scope, to load prior context before touching
   anything. Trigger on the symptom even when the user never says "memory-agent",
-  "memory-champ", "CoALA", or "MCP". Do NOT use for Claude's own conversation
-  memory or for other note stores — those are separate systems with their own
-  skills.
+  "memory-champ", "CoALA", or "MCP". Do NOT use for the host's own built-in
+  memory or for other note stores — those are separate systems.
 ---
 
 # memory-agent
 
 Front door to the `memory-champ` store. Every read and write goes through the
-`mcp__memory-champ__*` tools; the CLI is used for exactly one thing, and it is
-not one you do.
+`memory_*` tools of the `memory-champ` MCP server; the CLI is used for exactly
+one thing, and it is not one you do.
+
+This file is the same in every host that can read local files and run a shell —
+Claude Code, Codex, Antigravity. Each host prefixes the tool names its own way
+(Claude Code shows `mcp__memory-champ__memory_recall`); use the names your tool
+list shows. The tool behind each name is identical.
 
 **Why this exists.** The store has a causal chain: cycles produce episodes,
 episodes let `reflect` promote candidates, candidates queue at the gate, and the
@@ -36,7 +40,9 @@ resolving a scope, `references/review-gate.md` before touching the queue, and
 
 ## Dispatch
 
-Read the text after `/memory-agent`, if any. First token selects:
+Read the text after the invocation, if any — `/memory-agent` in Claude Code and
+Antigravity, `$memory-agent` in Codex. Below, `/memory-agent` stands for
+whichever form your host uses. First token selects:
 
 | Invocation | Does |
 |---|---|
@@ -67,8 +73,9 @@ fails. They are the fallback when something is wrong.
 Full rules in `references/scope-map.md`. In short, stop at the first hit:
 
 1. Stated in the invocation or the sentence.
-2. Longest-prefix match of the working directory in `~/.memory-agent/claude.yaml`
-   under `scopes:` — segment-boundary, case-insensitive, separator-agnostic.
+2. Longest-prefix match of the working directory in the scope map —
+   `~/.memory-agent/hosts.yaml`, or `claude.yaml` from before the rename —
+   under `scopes:`. Segment-boundary, case-insensitive, separator-agnostic.
 3. `$MEMORY_AGENT_SCOPE`.
 4. **Ask**, offering the real `scopes[]` from `memory_stats` as a menu with
    record counts.
@@ -103,12 +110,15 @@ Bare `/memory-agent`:
 4. **Report:**
 
 ```
-memory-champ · scope <name> (from claude.yaml) · N records
+memory-champ · scope <name> (from <source>) · N records
 store: N records / N scopes · N pending · N open cycles · embeddings 1.00
 cycle <id> open — "<goal>"
 recalled N records / N tokens
   · <3-6 bullets>
 ```
+
+   `<source>` is the rule that resolved the scope: `invocation`, the map file's
+   name (`hosts.yaml` or `claude.yaml`), `$MEMORY_AGENT_SCOPE`, or `asked`.
 
 5. **Surface `warnings[]` verbatim.** They are the server's own health strings
    and are more trustworthy than an inferred summary.

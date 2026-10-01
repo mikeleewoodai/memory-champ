@@ -7,6 +7,8 @@ producing that signature is one line rather than a chore.
 
     memory-agent init                       # key + policy + host config, once
     memory-agent install-claude-code        # /memory-agent in Claude Code
+    memory-agent install-codex              # $memory-agent in Codex (CLI + app)
+    memory-agent install-antigravity        # server + /memory-agent in Antigravity
     memory-agent fingerprint ~/.memory-agent/approval.pub
     memory-agent review list --scope acme.crm
     memory-agent review approve p_01J9X2 --reviewer me --key ~/.memory-agent/approval
@@ -18,6 +20,7 @@ import argparse
 import getpass
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -25,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import approval as A
-from .config import Policy, default_home
+from .config import Policy, default_home, default_policy_path, resolve_policy_path
 from .errors import MemoryAgentError
 from .service import MemoryService
 from .skill_path import skill_files, skill_path
@@ -352,8 +355,13 @@ def cmd_init(args) -> int:
         print(f"policy:       {policy_path}  (written, reviewer already filled in)")
 
     print(f"database:     {home / 'memory.db'}  (created on first write)")
-    print(f"\nAdd this to your MCP host config — no env var needed, {policy_path.name}\n"
-          f"is found at the conventional path:\n")
+    print("\nConnect a host with one command:\n"
+          "  memory-agent install-claude-desktop   Claude Desktop\n"
+          "  memory-agent install-claude-code      Claude Code skill (register with `claude mcp add`)\n"
+          "  memory-agent install-codex            Codex CLI and desktop app\n"
+          "  memory-agent install-antigravity      Antigravity")
+    print(f"\nOr add this to your MCP host config by hand — no env var needed,\n"
+          f"{policy_path.name} is found at the conventional path:\n")
     print(_mcp_block(args.server_name))
     return 0
 
@@ -369,38 +377,55 @@ def claude_desktop_config_path() -> Path:
 
 
 def cmd_install_claude_desktop(args) -> int:
-    """Merge this server into claude_desktop_config.json.
-
-    Editing a file the user owns and did not hand us, so the rules are: back it
-    up first, never write over JSON we could not parse, and touch nothing but
-    our own key. A config that fails to parse is far more likely to be a config
-    we do not understand than one that is corrupt, and overwriting it would
-    destroy every other server the user has configured.
-    """
+    """Merge this server into claude_desktop_config.json."""
     path = Path(args.path).expanduser() if args.path else claude_desktop_config_path()
-    name = args.server_name
     entry = {"command": sys.executable, "args": ["-m", "memory_agent.server"]}
+    return _merge_mcp_json(path, args.server_name, entry, args.dry_run,
+                           "Restart Claude Desktop for it to pick this up.")
 
-    if path.exists():
-        raw = path.read_text(encoding="utf-8")
-        try:
-            config = json.loads(raw) if raw.strip() else {}
-        except json.JSONDecodeError as exc:
-            print(f"{path} is not valid JSON ({exc}).\n"
-                  f"Refusing to overwrite it - fix or move it first. Every other "
-                  f"MCP server you have configured lives in that file.",
-                  file=sys.stderr)
-            return 1
-        if not isinstance(config, dict):
-            print(f"{path} is JSON but not an object; refusing to touch it.", file=sys.stderr)
-            return 1
-    else:
-        raw, config = "", {}
 
-    servers = config.setdefault("mcpServers", {})
-    if not isinstance(servers, dict):
+def _read_mcp_json(path: Path) -> tuple[str, dict | None]:
+    """The raw text and parsed object of an `mcpServers` JSON config.
+
+    None for the object means do not touch it, and the reason has already gone
+    to stderr. An empty or absent file is a valid empty config - Antigravity
+    ships its mcp_config.json as 0 bytes.
+    """
+    if not path.exists():
+        return "", {"mcpServers": {}}
+    raw = path.read_text(encoding="utf-8")
+    try:
+        config = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError as exc:
+        print(f"{path} is not valid JSON ({exc}).\n"
+              f"Refusing to overwrite it - fix or move it first. Every other "
+              f"MCP server you have configured lives in that file.",
+              file=sys.stderr)
+        return raw, None
+    if not isinstance(config, dict):
+        print(f"{path} is JSON but not an object; refusing to touch it.", file=sys.stderr)
+        return raw, None
+    if not isinstance(config.setdefault("mcpServers", {}), dict):
         print(f'{path}: "mcpServers" is not an object; refusing to touch it.', file=sys.stderr)
+        return raw, None
+    return raw, config
+
+
+def _merge_mcp_json(path: Path, name: str, entry: dict, dry_run: bool,
+                    restart_hint: str) -> int:
+    """Merge one server into a host's `mcpServers` JSON config.
+
+    Claude Desktop and Antigravity share this shape. Editing a file the user
+    owns and did not hand us, so the rules are: back it up first, never write
+    over JSON we could not parse, and touch nothing but our own key. A config
+    that fails to parse is far more likely to be a config we do not understand
+    than one that is corrupt, and overwriting it would destroy every other
+    server the user has configured.
+    """
+    raw, config = _read_mcp_json(path)
+    if config is None:
         return 1
+    servers = config["mcpServers"]
 
     previous = servers.get(name)
     if previous == entry:
@@ -409,7 +434,7 @@ def cmd_install_claude_desktop(args) -> int:
     servers[name] = entry
     merged = json.dumps(config, indent=2) + "\n"
 
-    if args.dry_run:
+    if dry_run:
         print(f"--- would write {path} ---")
         print(merged, end="")
         return 0
@@ -424,9 +449,9 @@ def cmd_install_claude_desktop(args) -> int:
     verb = "updated" if previous is not None else "added"
     others = sorted(k for k in servers if k != name)
     print(f"config:  {path}")
-    print(f"{verb}:  {name} -> {sys.executable} -m memory_agent.server")
+    print(f"{verb}:  {name} -> {' '.join([entry['command'], *entry.get('args', [])])}")
     print(f"kept:    {', '.join(others) if others else '(no other servers)'}")
-    print("\nRestart Claude Desktop for it to pick this up.")
+    print(f"\n{restart_hint}")
     return 0
 
 
@@ -455,16 +480,27 @@ def _skill_diff(source: Path, dest: Path, names: list[Path]) -> list[Path]:
 
 
 def cmd_install_claude_code(args) -> int:
-    """Copy the skill into Claude Code's skills directory.
+    """Copy the skill into Claude Code's skills directory."""
+    base = Path(args.path).expanduser() if args.path else claude_code_skills_path()
+    return _install_skill(args, base,
+                          f"Restart Claude Code, then run /{args.name} to check it registered.")
 
-    The alternative — telling people to copy a directory by hand and re-copy it
-    after every change — is how the two copies drift, and a drifted skill is
-    worse than an absent one because it still answers. `--check` exists so drift
-    is detectable rather than discovered.
+
+def _install_skill(args, base: Path, next_step: str) -> int:
+    """Copy the skill into one host's skills directory.
+
+    Every host that can read local files and run a shell gets the same skill,
+    so this is one routine with a destination, not one per host. The
+    alternative — telling people to copy a directory by hand and re-copy it
+    after every change — is how copies drift, and a drifted skill is worse than
+    an absent one because it still answers. `--check` exists so drift is
+    detectable rather than discovered.
 
     Same rules as install-claude-desktop: this is a directory the user owns and
     did not hand us, so back up before overwriting, and refuse anything we did
     not write ourselves rather than assuming it is ours to replace.
+
+    `args` carries name, check, dry_run and force.
     """
     try:
         source = skill_path()
@@ -472,7 +508,6 @@ def cmd_install_claude_code(args) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
-    base = Path(args.path).expanduser() if args.path else claude_code_skills_path()
     dest = base / args.name
     names = skill_files(source)
 
@@ -539,8 +574,201 @@ def cmd_install_claude_code(args) -> int:
 
     print(f"skill:   {dest}")
     print(f"wrote:   {len(names)} file(s) from {source}")
-    print(f"\nRestart Claude Code, then run /{args.name} to check it registered.")
+    print(f"\n{next_step}")
     return 0
+
+
+# --------------------------------------------------------------------------
+# Codex and Antigravity
+# --------------------------------------------------------------------------
+
+def _pinned_policy(args) -> Path | None:
+    """The policy file to bake into a host config, or None after saying why.
+
+    Codex starts stdio servers with a fixed environment allowlist, so a
+    MEMORY_AGENT_HOME or MEMORY_AGENT_POLICY set in the user's shell never
+    reaches the server, and Antigravity does not document what it passes.
+    Without a path in the host config the server falls through to defaults and
+    opens ./memory.db in whatever directory the host starts it from (B-4) — an
+    empty store that reports zero records and looks healthy.
+    """
+    found = resolve_policy_path(getattr(args, "policy", None))
+    if found is None:
+        print("No policy.yaml to point the host at. Looked at --policy, "
+              f"$MEMORY_AGENT_POLICY, then {default_policy_path()}.\n"
+              "Run `memory-agent init` first, or pass --policy before the subcommand.",
+              file=sys.stderr)
+    return found
+
+
+def _server_entry(policy: Path) -> dict:
+    return {"command": sys.executable, "args": ["-m", "memory_agent.server"],
+            "env": {"MEMORY_AGENT_POLICY": str(policy)}}
+
+
+def _mcp_json_status(path: Path, name: str, entry: dict) -> int:
+    """--check for a JSON host config: 0 matches, 1 differs, 2 absent."""
+    if not path.exists():
+        print(f"{path} does not exist, so {name} is not configured")
+        return 2
+    _, config = _read_mcp_json(path)
+    if config is None:
+        return 1
+    current = config["mcpServers"].get(name)
+    if current is None:
+        print(f"{name} is not configured in {path}")
+        return 2
+    if current != entry:
+        print(f"{name} in {path} differs from this install:\n"
+              f"  has:  {json.dumps(current)}\n  want: {json.dumps(entry)}")
+        return 1
+    print(f"{name} in {path} matches this install")
+    return 0
+
+
+def codex_home() -> Path:
+    """Codex's config directory: $CODEX_HOME, else ~/.codex."""
+    override = os.environ.get("CODEX_HOME")
+    return Path(override).expanduser() if override else Path.home() / ".codex"
+
+
+def codex_skills_path() -> Path:
+    """Where Codex loads user skills from.
+
+    ~/.agents/skills is the current location. $CODEX_HOME/skills still loads
+    but is deprecated, and a skill present in both loads twice — so this
+    installs to one and never the other.
+    """
+    return Path.home() / ".agents" / "skills"
+
+
+def _toml_key(key: str) -> str:
+    return key if re.fullmatch(r"[A-Za-z0-9_-]+", key) else json.dumps(key)
+
+
+def _toml_str(value: str) -> str:
+    # A literal string needs no escaping, which keeps a Windows path readable.
+    # A value it cannot hold falls back to a basic string; JSON's escapes are a
+    # subset of TOML's, so json.dumps writes a valid one.
+    return json.dumps(value) if "'" in value or "\n" in value else f"'{value}'"
+
+
+def _shell_arg(value: str) -> str:
+    return f'"{value}"' if any(c.isspace() for c in value) else value
+
+
+def _codex_registration(name: str) -> str:
+    """Whether config.toml already registers the server. Read-only.
+
+    The installer never writes config.toml: the standard library has no TOML
+    writer, `codex mcp add` owns that file's format, and the desktop app is
+    reported to rewrite the file at startup and drop blocks it did not write
+    (openai/codex#24718).
+    """
+    cfg = codex_home() / "config.toml"
+    if not cfg.exists():
+        return f"{cfg} does not exist yet, so nothing is registered."
+    try:
+        import tomllib  # noqa: PLC0415 - 3.11+, and only this check needs it
+    except ImportError:
+        return f"this Python cannot read TOML; check with `codex mcp get {name}`."
+    try:
+        data = tomllib.loads(cfg.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+        return f"{cfg} did not parse ({exc}); check with `codex mcp get {name}`."
+    entry = (data.get("mcp_servers") or {}).get(name)
+    if not isinstance(entry, dict):
+        return f"{name} is not registered in {cfg} yet."
+    runs = " ".join([str(entry.get("command", "")), *map(str, entry.get("args", []))])
+    pinned = (entry.get("env") or {}).get("MEMORY_AGENT_POLICY")
+    return (f"{name} is already registered in {cfg}: {runs}\n         "
+            + (f"MEMORY_AGENT_POLICY={pinned}" if pinned else
+               "no MEMORY_AGENT_POLICY - the server will use the default location"))
+
+
+def cmd_install_codex(args) -> int:
+    """Copy the skill for Codex and print how to register the server.
+
+    Codex's CLI, IDE extension and desktop app share config.toml, so one
+    registration covers all three. Registration is printed, not written: see
+    _codex_registration.
+    """
+    policy = _pinned_policy(args)
+    if policy is None:
+        return 1
+    base = Path(args.path).expanduser() if args.path else codex_skills_path()
+    rc = _install_skill(args, base,
+                        f"Restart Codex, then run ${args.name} to check it registered.")
+
+    print(f"\nserver:  {_codex_registration(args.server_name)}")
+    if args.check:
+        return rc
+
+    add = " ".join(["codex", "mcp", "add", args.server_name,
+                    "--env", _shell_arg(f"MEMORY_AGENT_POLICY={policy}"),
+                    "--", _shell_arg(sys.executable), "-m", "memory_agent.server"])
+    key = _toml_key(args.server_name)
+    print(f"\nTo register the server, or re-point it at this install, run:\n\n  {add}\n\n"
+          f"In PowerShell, quote the separator as '--'. Or add this to "
+          f"{codex_home() / 'config.toml'}\n(in the desktop app: Settings > MCP servers):\n\n"
+          f"[mcp_servers.{key}]\n"
+          f"command = {_toml_str(sys.executable)}\n"
+          f'args = ["-m", "memory_agent.server"]\n\n'
+          f"[mcp_servers.{key}.env]\n"
+          f"MEMORY_AGENT_POLICY = {_toml_str(str(policy))}")
+    return rc
+
+
+def antigravity_home() -> Path:
+    """Antigravity's config directory.
+
+    2.x keeps it in ~/.gemini/config/, which the app, the IDE and the `agy` CLI
+    share; 1.x used ~/.gemini/antigravity/. Prefer whichever exists, 2.x first,
+    and assume 2.x on a machine that has neither yet.
+    """
+    gemini = Path.home() / ".gemini"
+    for d in (gemini / "config", gemini / "antigravity"):
+        if d.is_dir():
+            return d
+    return gemini / "config"
+
+
+def antigravity_skills_paths() -> list[Path]:
+    """The app/IDE skills folder, plus the `agy` CLI's when that is installed.
+
+    They share mcp_config.json but not skills, so a skill installed only for
+    the app is missing from the CLI without any error.
+    """
+    paths = [antigravity_home() / "skills"]
+    agy = Path.home() / ".gemini" / "antigravity-cli"
+    if agy.is_dir():
+        paths.append(agy / "skills")
+    return paths
+
+
+def cmd_install_antigravity(args) -> int:
+    """Merge the server into Antigravity's mcp_config.json and copy the skill."""
+    policy = _pinned_policy(args)
+    if policy is None:
+        return 1
+    path = Path(args.path).expanduser() if args.path else antigravity_home() / "mcp_config.json"
+    entry = _server_entry(policy)
+
+    if args.check:
+        rc = _mcp_json_status(path, args.server_name, entry)
+    else:
+        rc = _merge_mcp_json(path, args.server_name, entry, args.dry_run,
+                             "Restart Antigravity for it to pick this up.")
+        if rc:
+            return rc
+
+    bases = ([Path(args.skills_path).expanduser()] if args.skills_path
+             else antigravity_skills_paths())
+    for base in bases:
+        print()
+        rc = max(rc, _install_skill(
+            args, base, f"Then run /{args.name} in the agent panel to check it registered."))
+    return rc
 
 
 def cmd_fingerprint(args) -> int:
@@ -706,18 +934,38 @@ def main(argv: list[str] | None = None) -> int:
                    help="print the merged config instead of writing it")
     d.set_defaults(func=cmd_install_claude_desktop)
 
+    def _skill_flags(p):
+        p.add_argument("--name", default="memory-agent",
+                       help="skill directory name, and the command it registers")
+        p.add_argument("--force", action="store_true",
+                       help="replace a skill that differs, backing it up first")
+        p.add_argument("--check", action="store_true",
+                       help="report drift without writing: 0 matches, 1 drifted, 2 absent")
+        p.add_argument("--dry-run", action="store_true",
+                       help="show what would be written instead of writing it")
+
     c = sub.add_parser("install-claude-code",
                        help="copy the skill into Claude Code's skills directory")
     c.add_argument("--path", help=f"skills dir (default: {claude_code_skills_path()})")
-    c.add_argument("--name", default="memory-agent",
-                   help="skill directory name, and the slash command it registers")
-    c.add_argument("--force", action="store_true",
-                   help="replace a destination that differs, backing it up first")
-    c.add_argument("--check", action="store_true",
-                   help="report drift without writing: 0 matches, 1 drifted, 2 absent")
-    c.add_argument("--dry-run", action="store_true",
-                   help="list the files instead of writing them")
+    _skill_flags(c)
     c.set_defaults(func=cmd_install_claude_code)
+
+    x = sub.add_parser("install-codex",
+                       help="copy the skill for Codex and print the server registration")
+    x.add_argument("--path", help=f"skills dir (default: {codex_skills_path()})")
+    x.add_argument("--server-name", default="memory-champ")
+    _skill_flags(x)
+    x.set_defaults(func=cmd_install_codex)
+
+    g = sub.add_parser("install-antigravity",
+                       help="merge this server into Antigravity and copy the skill")
+    g.add_argument("--path", help="mcp_config.json to edit (default: "
+                                  f"{antigravity_home() / 'mcp_config.json'})")
+    g.add_argument("--skills-path", help="skills dir (default: Antigravity's, plus "
+                                         "the agy CLI's when installed)")
+    g.add_argument("--server-name", default="memory-champ")
+    _skill_flags(g)
+    g.set_defaults(func=cmd_install_antigravity)
 
     f = sub.add_parser("fingerprint", help="print a public key's key_id")
     f.add_argument("path")

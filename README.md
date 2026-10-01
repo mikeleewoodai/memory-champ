@@ -129,10 +129,47 @@ backup), and `--check` reports drift without writing: exit 0 matches, 1
 drifted, 2 absent.
 
 Scope is the one thing the skill cannot derive, so it reads a map from
-`~/.memory-agent/claude.yaml`. Copy
-[`integrations/claude/claude.example.yaml`](integrations/claude/claude.example.yaml)
-there and fill it in. Without it the skill asks instead of guessing, which is
-the intended fallback rather than a broken state.
+`~/.memory-agent/hosts.yaml`. Copy
+[`integrations/hosts.example.yaml`](integrations/hosts.example.yaml) there and
+fill it in. Without it the skill asks instead of guessing, which is the intended
+fallback rather than a broken state. Every host below reads the same map, so a
+project resolves to the same scope whichever agent works in it. The file used to
+be called `claude.yaml`, and that name is still read when `hosts.yaml` is absent.
+
+**Codex** (the CLI, the IDE extension and the desktop app share one config) —
+install the skill, then register the server with the command it prints:
+
+```bash
+~/memory-champ-venv/bin/memory-agent install-codex
+```
+
+It copies the same skill into `~/.agents/skills/`, which registers
+`$memory-agent`, and prints a `codex mcp add` command plus the equivalent
+`config.toml` block, both naming this interpreter and your `policy.yaml`. It
+prints rather than writes because `codex mcp add` owns that file's format, and
+the desktop app rewrites the file at startup. The policy path is pinned in the
+registration because Codex starts servers with a fixed environment allowlist: a
+`MEMORY_AGENT_HOME` set in your shell never reaches the server. `--check` works
+as above, and also reports whether the server is already registered.
+
+**Antigravity** (the app, the IDE and the `agy` CLI) — one command, then restart
+Antigravity:
+
+```bash
+~/memory-champ-venv/bin/memory-agent install-antigravity
+```
+
+It merges the server into `~/.gemini/config/mcp_config.json`
+(`~/.gemini/antigravity/` on 1.x), with the same backup-first,
+refuse-what-does-not-parse rules as Claude Desktop, and copies the skill into
+Antigravity's skills folder — and the `agy` CLI's, if it is installed — which
+registers `/memory-agent`. `--path` and `--skills-path` override either
+location; `--dry-run` and `--check` work as above.
+
+**ChatGPT web and mobile** — not supported. They reach only remote HTTPS servers,
+and this server is stdio-only by design until caller authentication exists. See
+B-5 in [`BACKLOG.md`](BACKLOG.md). The Codex desktop app is covered by the Codex
+route above.
 
 **Cowork** — do the Claude Desktop step first, because Cowork uses that server.
 Then build the plugin from a copy of this repo (clone it, or download and
@@ -150,7 +187,7 @@ That writes `dist/memory-champ-<version>.plugin` — install that file as a plug
 in Cowork. `build_plugin.py` uses only the standard library, so any Python 3.10+
 runs it (`python` on Windows). The plugin carries the skill only, so Cowork does
 not start a second server. Cowork cannot sign approvals: proposals queue there
-and get signed from Claude Code or a terminal. See
+and get signed from Claude Code, Codex, Antigravity or a terminal. See
 [`integrations/claude/cowork-plugin/README.md`](integrations/claude/cowork-plugin/README.md).
 
 ### 4. Check it works
@@ -331,7 +368,7 @@ Approving is also callable over MCP — the signature, not the caller, is what t
 | [`verify.py`](verify.py) | Contract verification: schemas, DDL invariants, the published signature |
 | [`eval_recall.py`](eval_recall.py) | Recall quality, as opposed to correctness (A-4) |
 | [`HANDOVER.md`](HANDOVER.md) | Read-cold orientation, and the things most likely to trip you up |
-| [`integrations/`](integrations/README.md) | Claude Code skill and Cowork plugin, with the I-series gates that keep machine paths out of them |
+| [`integrations/`](integrations/README.md) | The agent skill (Claude Code, Codex, Antigravity) and the Cowork plugin, with the I-series gates that keep machine paths out of them |
 | [`build_plugin.py`](build_plugin.py) | Packages the Cowork plugin. Refuses to build a bundle carrying an absolute path |
 | [`BACKLOG.md`](BACKLOG.md) | Open work. B-1 blocks a work version |
 

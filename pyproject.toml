@@ -87,26 +87,27 @@ memory-agent-server = "memory_agent.server:main"
 # verify.py work against; this maps that one directory in as a subpackage so
 # there is still exactly one copy on disk.
 [tool.setuptools]
-# integrations/claude/code-skill/memory-agent/ maps in the same way and for the
-# same reason: `install-claude-code` copies that directory, so it has to be in
+# integrations/agent-skill/memory-agent/ maps in the same way and for the same
+# reason: every `install-*` command that ships a skill copies that directory
+# (Claude Code, Codex, Antigravity), so it has to be in
 # the wheel or the command works from a checkout and nowhere else. Only the CI
 # install job can see that defect - see integrations/README.md, I9.
-package-dir = { "" = "src", "memory_agent.contracts" = "contracts", "memory_agent.claude_skill" = "integrations/claude/code-skill/memory-agent" }
+package-dir = { "" = "src", "memory_agent.contracts" = "contracts", "memory_agent.agent_skill" = "integrations/agent-skill/memory-agent" }
 packages = [
     "memory_agent",
     "memory_agent.contracts",
     "memory_agent.contracts.db",
     "memory_agent.contracts.schemas",
-    "memory_agent.claude_skill",
-    "memory_agent.claude_skill.references",
+    "memory_agent.agent_skill",
+    "memory_agent.agent_skill.references",
 ]
 
 [tool.setuptools.package-data]
 "memory_agent.contracts" = ["*.json", "*.yaml"]
 "memory_agent.contracts.db" = ["*.sql"]
 "memory_agent.contracts.schemas" = ["*.json"]
-"memory_agent.claude_skill" = ["*.md"]
-"memory_agent.claude_skill.references" = ["*.md"]
+"memory_agent.agent_skill" = ["*.md"]
+"memory_agent.agent_skill.references" = ["*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -70,8 +70,11 @@ hypothetical; it is how stray `memory.db` files end up inside unrelated repos.
 
 So, every time, before handing over a command:
 
-1. Confirm the `cli` and `policy` paths from `claude.yaml` both **exist on disk**.
-2. Run `<cli> --policy <policy> stats --json`.
+1. Confirm the `cli` and `policy` paths from the scope map file (`hosts.yaml`,
+   or `claude.yaml` before the rename) both **exist on disk**.
+2. Run `<cli> --policy <policy> stats --json`. If it cannot run at all — a host
+   sandbox refusing it, a path that does not resolve — that is a failed check
+   too: say why and stop.
 3. **Compare its `counts.total` and `queue.pending_proposals` against what the
    MCP `memory_stats` just returned.** If they disagree, the CLI is pointed at a
    different database. Do not print the command. Report the mismatch and stop.

@@ -34,7 +34,7 @@ parameters worth setting.
 This is Cowork. Everything runs through the MCP tools, and two things that the
 Claude Code version does are simply unavailable here:
 
-- **No local config.** There is no `claude.yaml` scope map to read. Scopes come
+- **No local config.** There is no `hosts.yaml` scope map to read. Scopes come
   from the store itself, via `memory_stats`.
 - **No CLI, so no signing.** Approving a proposal reads a private key, and the
   CLI is the only thing that ever reads one. Proposals are queued here and
